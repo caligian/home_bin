@@ -1,0 +1,76 @@
+#!/usr/bin/perl
+
+use Getopt::Long;
+use warnings;
+
+$cmd = "find #PATHS# -maxdepth 2 -not \( -path '*/.git/*' -or -path '*/\.*/*' \) -name '*~' -or -name '*#*' -exec rm {} \;";
+$help = "$0: Remove emacs-generated ~|# prefixed/suffixed files.
+
+--dirs		[str] (optional): Dirlist where this script will run. Default: Current dir
+--maxdepth	[int] (optional): Depth to traverse. Default: 2
+--exclude	[str] (optional): Paths to exclude. Default (glob forms):
+
+* For lists, separator is ::
+* Default command: $cmd
+";
+
+die $help if scalar(@ARGV) > 0 && $ARGV[0] =~ /--?h(?:elp)?/;
+
+($p_dirs, $p_maxdepth, $p_exclude, $cmd_template) = ("./::", 2, ".git::*/\.*/*", "find #PATHS# #MAXDEPTH# #EXCLUDE_DIRS# -name '*~' -or -name '*#*'");
+GetOptions(
+    "dirs=s" => \$p_dirs,
+    "maxdepth=i" => \$p_maxdepth,
+    "exclude=s" => \$p_exclude,
+    );
+
+@p_dirs_ls = split /\s*::\s*/, $p_dirs;
+@p_exclude_ls = split /\s*::\s*/, $p_exclude;
+
+@p_dirs_ls = map { $_ =~ s/~/$ENV{HOME}/r } @p_dirs_ls;
+@p_exclude_ls = map { $_ =~ s/~/$ENV{HOME}/r } @p_dirs_ls;
+
+sub mk_excludepaths_string {
+    my @dirs = @{$_[0]};
+    my $l_dirs = scalar(@dirs);
+    my $dirs_str = "";
+
+    if ($l_dirs == 1) {
+	return qq(-not -path $dirs[0]);
+    } elsif ($l_dirs == 2) {
+	return qq(-not \\( -path "$dirs[0]" -or -path "$dirs[1]" \\));
+    }
+
+    for (my $i=1; $i<scalar(@dirs)-1;$i++) {
+	$dirs_str = "-path \$dirs_str -or ";
+    }
+    $dirs_str = sprintf "-not \( -path %s -or %s -path %s \)", $dirs[0], $dirs_str, $dirs[1];
+    return $dirs_str;
+}
+
+sub mkfindstr {
+    my $dirs = $_[0];
+    my $exclude_dirs = $_[1];
+    my $maxdepth = $_[2];
+    my $cmd_template = $_[3];
+
+    $dirs = join(" ", @$dirs);
+    my $exclude = mk_excludepaths_string($exclude_dirs);
+    $cmd_template =~ s/#PATHS#/$dirs/;
+    $cmd_template =~ s/#MAXDEPTH#/-maxdepth $maxdepth/;
+    $cmd_template =~ s/#EXCLUDE_DIRS#/$exclude/;
+    return $cmd_template;
+}
+
+sub run {
+    my ($dirs, $exclude_dirs, $maxdepth, $cmd_template) = @_;
+    my $tempfile = qx(mktemp);
+    $tempfile =~ s/^\s*|\s*$//;
+
+    my $str = mkfindstr($dirs, $exclude_dirs, $maxdepth, $cmd_template);
+    my $out = qx($str);
+    my @files = split "\n", $out;
+    @files = map { $_ =~ s/^\s*|\s*$//r } @files;
+    map { qx(rm -v $_) } @files;
+}
+
+run(\@p_dirs_ls, \@p_exclude_ls, $p_maxdepth, $cmd_template);
