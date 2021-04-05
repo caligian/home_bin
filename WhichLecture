@@ -1,0 +1,99 @@
+#!/usr/bin/perl
+
+use warnings;
+use strict;
+use YAML::XS 'LoadFile';
+use DateTime; 
+use Data::Dumper;
+
+$, = " ";
+
+sub GetHour {
+    my ($h, $m) = @_;
+    return $h + $m/60; 
+}
+
+sub GetLinkFromTime {
+    my $hashref = $_[0];
+    my $day = $_[1];
+    my $time = $_[2];
+    
+    my @timeKeys = sort { $a cmp $b } keys %{$hashref->{$day}{apps}};
+    my @times = map {
+	my $t = $_ =~ s/^[a-z]\.\s*([0-9]+\.?([0-9]+)?)\s*(?:am|pm)/$1/r;
+	if ($t =~ /1\.30/) {
+	    $t =~ s/1/13/; 
+	}
+	
+	if ($t =~ /\./) {
+	    my @s = split /\s*\.\s*/, $t;
+	    @s = map { int $_ } @s; 
+	    GetHour(@s); 
+	} else {
+	    int $t; 
+	}
+    } @timeKeys;
+
+    $, = " ";
+
+    my $i = 0; 
+    for ($i=0; $i<scalar @times; $i++) {
+	my $b = $times[$i];
+	if ($time < $b) {
+	    $time = $timeKeys[$i-1] unless $i == 0;
+            last; 
+	} 
+    }
+
+    my $send = undef;
+    --$i unless $i == 0; 
+    if ($i == scalar @times) {
+	$send = $hashref->{$day}{apps}{$timeKeys[-1]};
+    } else {
+	$send = $hashref->{$day}{apps}{$timeKeys[$i]}; 
+    }
+
+    return $send; 
+}
+
+sub Main {
+    my $location = $ENV{HOME} . "/.config/CustomDmenu/config1.yaml"; 
+    my $yaml = LoadFile($location);
+    my %college = %{$yaml->{categories}{apps}{College}{apps}}; 
+    my @cdays = sort { $a cmp $b } keys %college; 
+    my @dt = localtime;
+
+    qx/notify-send "No lectures on Sunday\n"/, die if $dt[6] == 7;
+    
+    my $hour = $dt[2];
+    my $minutes = $dt[1];
+    my $timeNow = GetHour($hour, $minutes);
+    unshift @cdays, 1; 
+    my $day = $cdays[$dt[6]];
+
+    $, = " "; 
+
+    my $link = ExpandAlias($yaml->{config}{aliases}, GetLinkFromTime(\%college, $day, $timeNow));
+
+    print "Lecture string: $link\nDay: $day\nTime: $timeNow hours\n"; 
+    
+    qx( $link );
+    
+}
+
+sub ExpandAlias {
+    my ($aliasesMap, $link) = @_;
+    
+    if ($link =~ /(\$\[[^\]]+])/) {
+        my $f = $1 =~ tr/\[\]$//rd;
+	my $a = quotemeta($1);
+	my $b = $aliasesMap->{$f}; 
+	$link =~ s/$a/$b/;
+	return $link; 
+    }
+    die "Could not find alias.\n"; 
+}
+
+
+Main(); 
+

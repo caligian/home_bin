@@ -1,0 +1,35 @@
+#!/bin/bash
+
+theme=""
+themePath=""
+path=$HOME/.Xresources
+
+function PutTheme() {
+    limit="$( grep -En '^!\sspecial' $path | sed -r 's/^([0-9]+).*/\1/' )"
+    head -n $[limit-1] $path > ${path}.bak
+
+    if [[ -n $theme ]]; then 
+	echo -e "$theme" >> ${path}.bak
+	mv ${path}.bak $path
+    elif [[ -n $themePath ]]; then
+	echo Using theme: $themePath
+	cat $themePath >> ${path}.bak
+	mv ${path}.bak $path
+    else
+	echo 'No input.' && exit 1
+    fi
+    xrdb $path
+}
+
+if [[ -p /dev/stdin ]]; then
+    while IFS=$'\n' read line; do
+	theme="${theme}\n${line}"
+    done
+    PutTheme
+elif [[ -n $1 ]]; then
+    [[ ! -f $1 ]] && echo 'Invalid path.' && exit 1
+    themePath="$1"
+    PutTheme
+else
+    echo 'No theme piped into the script nor provided any filename parameter. Exiting.' && exit 1
+fi

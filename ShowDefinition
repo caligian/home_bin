@@ -1,0 +1,73 @@
+#!/usr/bin/perl
+
+use Data::Dumper; 
+use Getopt::Std;
+use autodie;
+use JSON; 
+use warnings;
+use strict;
+
+my $help = "$0: Show the definition of a particular word using sdcv.
+
+Caveat: Use piped input only. You can pass multiple whitespace separated words and get all of their definitions in that order.
+
+-d STR Show the definition from this particular dictionary. You can either pass a regular expression or the exact name of the dictionary to be matched. If multiple dictionaries match, show definition from all of them. However this can be limited by using the -l option
+
+-l INT Limit the number of dictionaries to INT. When a word matches across multiple dictionaries, this option shall be used to limit the number of definitions to be shown.
+
+-h Show help 
+    ";
+
+die $help if scalar @ARGV > 0 and $ARGV[0] =~ /-?(-help|h|help)/;
+
+my ($opt_d, $opt_l, $opt_h) = (undef,undef,undef); 
+getopts("d:l:h");
+
+my $limit = defined $opt_l ? int $opt_l : 1;
+my $preferred = defined $opt_d ? $opt_d : qr/Merrian Webster/;
+
+$preferred = qr/$preferred/; 
+
+my @words = (); 
+# Accept piped input
+while (my $line = <STDIN>) {
+    push @words, split /\s+/, $line;
+}
+
+my $output = "";
+foreach my $w (@words) {
+    $output = qx/sdcv -j $w/;
+
+    chomp $output;
+    next unless $output;
+
+    if ($output =~ /Nothing similar to/) {
+	print "Invalid query [$w]\n";
+	next; 
+    }
+
+    my $json = undef; 
+    $json = eval { decode_json $output };
+
+    next unless defined $json; 
+    
+
+    my @matchingDictionaries = ();
+    foreach my $dict (@$json) {
+	my $name = $dict->{dict};
+	if ($dict->{dict} =~ $preferred) {
+	    push @matchingDictionaries, $dict;
+	} 
+    }
+
+    $limit = scalar @$json if $limit > scalar @$json;
+    $limit = scalar @matchingDictionaries if $limit > scalar @matchingDictionaries; 
+    
+    for (my $i=0; $i < $limit; $i++) {
+	my $c = $matchingDictionaries[$i]; 
+	printf "----------\n<%s>\n<%s>%s\n\n", $w, $c->{dict}, $c->{definition};
+    }
+}
+
+
+    

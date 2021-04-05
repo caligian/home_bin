@@ -1,0 +1,6 @@
+#!/bin/bash 
+
+if [[ "$( lsusb | grep -i keyboard )" ]]; then 
+    #	setxkbmap -option ctrl:swapcaps
+	xkbcomp -I/home/caligian/.config/xkb /home/caligian/xkbmap.custom $DISPLAY	
+fi

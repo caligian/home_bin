@@ -1,0 +1,35 @@
+#!/bin/bash
+
+[[ -z $1 ]] && echo 'no arg provided. provide an INT for workspace.' && exit 1
+
+cmd="i3-msg"
+[[ -n 2 ]] && cmd="i3-msg"
+
+[[ -n $1 ]] && [[ $1 -gt 10 ]] || [[ $1 -lt 0 ]] && echo 'invalid index.' && exit
+
+target=$[$1 - 1]
+
+echo $target
+
+IFS=$'\n'
+
+workspaces=($($cmd -t get_workspaces | perl -M'JSON' -0777 -e '$json = decode_json(<>); foreach my $hashref (@$json) { print $hashref->{name}, "@", $hashref->{visible} == 0 ? "false" : "true", "\n" }'))
+
+unset IFS
+
+availableWorkspaces=(1:f 2:e+t+p 3:c 4:e 5:e+t 6:e+f 7:t+f 8:reserved 9:reserved 10:reserved)
+
+target=${availableWorkspaces[$target]}
+
+active=""
+echo $workspaces
+for i in ${workspaces[@]}; do
+    if [[ $i =~ 'true' ]]; then
+	active=${i%%@*}
+	echo active workspace = $active
+	break
+    fi
+done
+
+$cmd "rename workspace \"$active\" to temp; rename workspace \"$target\" to \"$active\"; rename workspace temp to \"$target\"; "
+
