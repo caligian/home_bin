@@ -1,0 +1,61 @@
+#!/usr/bin/zsh
+
+HELP="$0: Run wine applications by cd-ing into their directory and running it
+-e [STR]  Execute the binary represented by THIS alias. If a substring is provided instead of an exact match then the first match will be selected.
+-h [FLAG] Display help
+
+Caveats:
+Kindly check the example config in ~/.wine-exec.list
+"
+
+[[ -z $1 ]] && echo "No args provided. Type -h for help." && exit 1
+[[ $1 =~ "-h(elp)?" ]] && echo $HELP && exit 1
+
+# Variable declarations
+SAVE=""
+LOC=""
+EXEC=""
+
+# Verity checks
+SAVE="$HOME/.wine-exec.list"
+[[ ! -f $SAVE ]] && echo "$SAVE does not exist. Making one. " && touch $SAVE
+
+# Obtaining commandline params
+while getopts "he:" o
+do
+    case $o in
+        h) echo $HELP && exit 1 ;;
+        e) EXEC="$OPTARG";;
+    esac
+done
+
+OPTIND=$[ OPTIND - 1  ]
+
+# Process params
+if [[ -n $EXEC ]]
+then
+    LOC="$(cat $SAVE)"
+    LOC=(${(f)LOC})
+
+    for i in $LOC[@]; do
+        # binary :: alias :: path
+        [[ ! $i =~ "::" ]] && continue
+        [[ $i =~ "^#" ]] && continue
+
+        local arr=(${(@s/::/)i})
+        local binary=${arr[1]}
+        local alias=${arr[2]}
+        local dir=${arr[3]}
+        dir=${dir%%/}
+        local orignal_dir="$(pwd)"
+
+        if [[ $alias =~ $EXEC ]]
+        then
+           local p="$dir/$binary"
+           [[ ! -e $p ]] && echo "Invalid path: $p" && exit 1
+           cd $dir
+           wine $p
+           cd $original_dir
+        fi
+    done
+fi

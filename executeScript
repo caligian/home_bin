@@ -17,11 +17,12 @@ case $e in
      lua) x=lua	      ;;
      lisp) x=clisp    ;;
      js) x=node	      ;;
+     rb) x=ruby ;;
      c)  x="bash /home/caligian/bin/crun" ;;
      *) echo 'cannot execute this.'; exit 1 ;;
 esac
 
-$x $filename &>/dev/stdout
+$x $filename &> /dev/stdout
      
      
      

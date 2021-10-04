@@ -1,0 +1,513 @@
+#!/usr/bin/python3
+
+import os
+import sys
+import re
+from string import hexdigits
+from argparse import ArgumentParser as ap
+import json
+import subprocess
+
+if len(sys.argv) < 2:
+    print('Provide some args.')
+    sys.exit(1)
+
+
+class vars:
+    d_config: str = f'{os.environ["HOME"]}/.config/i3'
+    f_themei3: str = f'{os.environ["HOME"]}/.config/i3/user/theme.i3'
+    f_save: str = f'{os.environ["HOME"]}/currentTheme.i3'
+    f_save_rofi: str = f'{os.environ["HOME"]}/rofi_i3theme.rasi'
+    d_themes: str = f'{os.environ["HOME"]}/.config/i3/i3themes'
+    f_reload: str = f'{os.environ["HOME"]}/bin/reloadConfig'
+    f_bar: str = f'{os.environ["HOME"]}/.config/i3/user/bar.i3'
+    f_config: str = f'{os.environ["HOME"]}/.config/i3/config'
+    themesd: dict = {}
+
+    def reload_config():
+        if not os.path.exists(vars.f_reload):
+            print(
+                f'{f_reload} is not available. Use the copy provided in the repo and copy it to $HOME/bin')
+            sys.exit(1)
+        subprocess.Popen(['bash', vars.f_reload])
+
+    def getcurrent(printcolors=False):
+        if len(vars.themesd) == 0:
+            v = vars.getthemes()
+            if not v:
+                print('No themes available.')
+                sys.exit(1)
+
+        if not os.path.exists(vars.f_save):
+            print("No theme has been made.")
+            sys.exit(1)
+
+        if printcolors:
+            assoc = {'i_fg': 'Inactive focused foreground: ',
+                     'f_fg': 'Focused foreground         : ',
+                     'u_fg': 'Unfocused foreground       : ',
+                     'i_bg': 'Inactive focused background: ',
+                     'f_bg': 'Focused background         : ',
+                     'u_bg': 'Unfocused background       : ',
+                     'name': 'Name                       : ',
+                     }
+            for k, v in readjson(vars.f_save).items():
+                print(f'{assoc[k]} {v}')
+        else:
+            return readjson(vars.f_save)['name']
+
+    def print():
+        if len(vars.themesd) == 0:
+            v = vars.getthemes()
+            if not v:
+                print('No themes available.')
+                sys.exit(1)
+
+        ks = sorted(list(vars.themesd.keys()))
+        for idx, i in enumerate(ks):
+            print(f'{idx: <3}> {i: <20} {vars.themesd[ks[idx]]}')
+
+    def getthemes() -> list:
+        pe = os.path.exists
+        if not pe(vars.d_themes):
+            return False
+
+        def getbase(s): return re.search('[^/]+$', s).group(0)
+        for i in os.listdir(vars.d_themes):
+            b = getbase(i)
+            vars.themesd[b] = f"{vars.d_themes}/{i}"
+        if len(vars.themesd) == 0:
+            return False
+        return True
+
+    def search(s: str) -> dict:
+        if len(vars.themesd) == 0:
+            v = vars.getthemes()
+            if not v:
+                print('No themes available.')
+                sys.exit(1)
+
+        for i in vars.themesd:
+            if re.search(s, i.lower()):
+                return readjson(vars.themesd[i])
+        return False
+
+    def select_from_list() -> dict:
+        if len(vars.themesd) == 0:
+            v = vars.getthemes()
+            if not v:
+                print('No themes available.')
+                sys.exit(1)
+
+        ks = sorted([i for i in vars.themesd])
+
+        while True:
+            for idx, i in enumerate(ks):
+                print(f'{idx: <3}> {i: <20} {vars.themesd[ks[idx]]}')
+            print('[REQUIRES: REGEX || INT] >> ', end='')
+
+            inp = input().rstrip().lstrip()
+            if not inp:
+                print('No input provided.')
+            elif i := re.search('^\d+', inp):
+                i = int(i.group(0))
+                if i > len(vars.themesd):
+                    print(f'{i} > len(number of themes available)')
+                elif i < 0:
+                    print(f'Invalid INT input: {inp}')
+                else:
+                    return readjson(vars.themesd[ks[i]])
+            elif s := re.search('^\w+$', inp):
+                av = vars.search(s.group(0))
+                if not av:
+                    print(f'{inp} did not match any available themes.')
+                else:
+                    return av
+            else:
+                print(f'Invalid input: {inp}')
+                continue
+
+    def checklocs():
+        e = False
+        pe = os.path.exists
+
+        if not pe(vars.d_config):
+            print("Where is the i3 config?")
+            sys.exit(1)
+
+        if not pe(vars.f_themei3):
+            vars.p_themei3 = f'{d_config}/config'
+
+        if not pe(vars.d_themes):
+            os.mkdir(vars.d_themes)
+
+
+def writebarstr(colors: str):
+    loc = ''
+    if os.path.exists(vars.f_bar):
+        loc = vars.f_bar
+    else:
+        loc = vars.f_config
+    with open(loc, 'w') as f:
+        f.write(colors)
+
+
+def __colorify(colors: list, colord: dict):
+    assoc = {
+        "focused_workspace": f"{colord['f_bg']} {colord['f_bg']} {colord['f_fg']}",
+        "inactive_workspace": f"{colord['u_bg']} {colord['u_bg']} {colord['u_fg']}",
+        "binding_mode": f"{colord['f_bg']} {colord['f_fg']} {colord['f_bg']}",
+        "background": colord["i_bg"],
+        "statusline": colord["i_fg"],
+    }
+    if colors:
+        for idx, i in enumerate(colors):
+            i = re.sub('#.+', '', i).rstrip()
+            if i in assoc:
+                colors[idx] = f"{i} {assoc[i]}"
+    else:
+        colors = []
+        for i in assoc:
+            colors.append(f"{i} {assoc[i]}")
+    return colors
+
+
+def mkbarstr(colord: dict):
+    if os.path.exists(vars.f_bar):
+        loc = vars.f_bar
+    else:
+        loc = vars.f_config
+
+    lines = None
+    with open(loc) as f:
+        lines = f.read()
+
+    barstr = re.search('^bar\s*\{[^}]+', lines, re.M).group(0)
+    bar = barstr.split('\n')
+
+    # get everything till the colors section
+    pr = []
+    c = 0
+    colors = []
+    for idx, i in enumerate(bar):
+        if 'colors' in i:
+            c = idx
+            break
+        pr.append(i.lstrip().rstrip().replace('{', ''))
+    pr.pop(0)
+
+    # if there is a colors section
+    if c != 0:
+        for i in range(c, len(bar)):
+            i = bar[i].lstrip().rstrip().replace('{', '')
+            if '}' in i:
+                break
+            colors.append(i)
+        colors.pop(0)
+        colors = __colorify(colors, colord)
+    else:
+        colors = __colorify(None, colord)
+
+    pr = "\t" + ("\n\t").join(pr).rstrip()
+    colors = "\t\t" + ("\n\t\t").join(colors).rstrip()
+    mainstr = 'bar {\n' + pr + '\n\tcolors {\n' + colors + '\n\t}\n}'
+
+    if loc == vars.f_config:
+        return re.sub(f"{barstr}\s*" + "}", mainstr, lines, re.M)
+    return mainstr
+
+
+def mkthemestr(colord: dict, borders_only=False) -> str:
+    foc, ufoc, ifoc = "", "", ""
+    if not borders_only:
+        foc = f'client.focused {colord["f_bg"]} {colord["f_bg"]} {colord["f_fg"]}'
+        ufoc = f'client.unfocused {colord["u_bg"]} {colord["u_bg"]} {colord["u_fg"]}'
+        ifoc = f'client.focused_inactive {colord["i_bg"]} {colord["i_bg"]} {colord["i_fg"]}'
+    else:
+        foc = f'client.focused {colord["f_bg"]} #ff0000 {colord["f_fg"]}'
+        ufoc = f'client.unfocused {colord["u_bg"]} #6680ff {colord["u_fg"]}'
+        ifoc = f'client.focused_inactive {colord["u_bg"]} #874343 {colord["i_fg"]}'
+
+    return f'\n#current theme: {colord["name"]}\n{foc}\n{ufoc}\n{ifoc}'
+
+
+def write(file: str, s: str, append=False):
+    mode = 'w'
+    if append:
+        mode = 'a'
+    with open(file, mode) as f:
+        f.write(s)
+
+
+def writejson(file: str, o):
+    with open(file, 'w') as f:
+        json.dump(o, f)
+
+
+def readjson(file: str):
+    with open(file) as f:
+        return json.load(f)
+
+
+def writetheme(colors: str):
+    write(vars.f_save, colors)
+    write(vars.f_themei3, colors)
+
+
+def checkcolors(colord: dict):
+    e = False
+    for i in colord:
+        if not i == 'name':
+            c = 0
+            for h in hexdigits:
+                if not h in colord[i][1:]:
+                    c += 1
+            if c == 6:
+                print(h, f"Malformed hex: {colord[i]}")
+                e = True
+    if e:
+        sys.exit(1)
+
+
+def hextorgb(colord: dict):
+    ret = {}
+    ret = ret.fromkeys(colord)
+    ret['name'] = colord['name']
+
+    def to_rgba(s): return tuple(int(s[i:i+2], 16) for i in (0, 2, 4))
+    def to_rgba_str(s): return f"rgba{str(to_rgba(s))}"
+
+    for i in colord:
+        if not 'name' == i:
+            v = colord[i].replace('#', '')
+            ret[i] = to_rgba_str(v)
+    return ret
+
+
+def writepolybar(thd: dict, paths: list):
+    elements: dict = {"background":     thd['i_bg'],
+                      "background-alt": thd['u_bg'],
+                      "foreground-alt": thd['u_fg'],
+                      "foreground":     thd['i_fg'],
+                      "primary":        thd['f_bg'],
+                      "secondary":      thd['i_fg'],
+                      "alert":          "#ff0000"}
+
+    def __replacelines(lines: list, startidx: int):
+        # startidx starts from the line after [colors]
+        notfound = []
+        for i in range(startidx, len(lines)):
+            line: str = lines[i]
+            var: str = re.split("\s+", line, maxsplit=1)[0].lstrip()
+            if var in elements:
+                lines[i] = f'{var} = "{elements[var]}"'
+                del elements[var]
+
+        # add the leftover elements
+        if len(elements) > 0:
+            for i in elements:
+                lines[startidx] = '{}\n{}'.format(
+                    f'{i} = "{elements[i]}"', lines[startidx])
+
+    def __findstartidx(lines: list):
+        for idx, i in enumerate(lines):
+            if "[colors]" in i:
+                return idx+1
+        return -1
+
+    for i in paths:
+        lines = []
+        with open(i) as FH:
+            lines = FH.read().split('\n')
+
+        startidx = __findstartidx(lines)
+        if startidx == -1:
+            print(f'[colors] section not found in config: {i}')
+            continue
+
+        __replacelines(lines, startidx)
+        lines = ("\n").join(lines)
+
+        with open(i, 'w') as FH:
+            FH.write(lines)
+
+
+def applytheme(thd: dict, i3bar=False, rofi=False, polybar=tuple(), borders_only=False):
+    # polybar var contains path[s]
+    ths = mkthemestr(thd, borders_only)
+    current_theme_name = thd["name"]
+
+    writetheme(ths)
+    writejson(vars.f_save, thd)
+
+    if not current_theme_name in vars.themesd:
+        writejson(f'{vars.d_themes}/{current_theme_name}', thd)
+
+    if i3bar:
+        barstr = mkbarstr(thd)
+        writebarstr(barstr)
+
+    if rofi:
+        r = mkrofitheme(hextorgb(thd))
+        writerofi(r)
+
+    if polybar:
+        polybar = tuple(polybar.replace('~', os.environ['HOME']).split('::'))
+#        names = [i.split('=')[1] for i in polybar]
+        send_paths = []
+        for path in polybar:
+            path = path[: path.index('=')]
+            if os.path.exists(path):
+                send_paths.append(path)
+            else:
+                print(f'Skipping path as it does not exist: {path}')
+        if len(send_paths) == 0:
+            print('Cannot apply theme to polybar.')
+        else:
+            writepolybar(thd, send_paths)
+        subprocess.run('pkill polybar'.split())
+
+        # for i in names:
+        #     subprocess.run(f'nohup polybar {i}'.split(), close_fds=True)
+
+    vars.reload_config()
+
+
+# colord contains rgba than hex
+def mkrofitheme(colord: dict):
+    if not os.path.exists(vars.f_save_rofi):
+        print(f'{vars.f_save_rofi} does not exist. Use the template provided in the repo (rofi_i3theme.rasi)')
+        sys.exit(1)
+
+    assocs = {
+        "selected-normal-foreground": "f_fg",  # Don't touch
+        "foreground": "i_fg",
+        "normal-foreground": "i_fg",
+        "alternate-normal-background": "i_bg",
+        "red": "rgba ( 220, 50, 47, 100 % )",
+        "selected-urgent-foreground": "i_fg",
+        "blue": "rgba ( 38, 139, 210, 100 % )",
+        "urgent-foreground": "i_fg",
+        "alternate-urgent-background": "i_bg",
+        "active-foreground": "f_fg",
+        "lightbg": "i_bg",
+        "selected-active-foreground": "f_fg",
+        "alternate-active-background": "i_bg",
+        "background": "i_bg",
+        "alternate-normal-foreground": "i_fg",
+        "normal-background": "i_bg",
+        "lightfg": "i_fg",
+        "selected-normal-background": "f_bg",  # Don't touch
+        "border-color": "i_bg",
+        "spacing": "5",
+        "separatorcolor": "i_fg",
+        "urgent-background": "i_bg",
+        "selected-urgent-background": "i_bg",
+        "alternate-urgent-foreground": "i_fg",
+        "background-color": "i_bg",
+        "alternate-active-foreground": "i_fg",
+        "active-background": "i_fg",
+        "selected-active-background": "i_fg", }
+
+    for i in assocs:
+        if i in ('red', 'blue', 'spacing'):
+            continue
+        assocs[i] = colord[assocs[i]]
+
+    ks = list(assocs.keys())
+    k1 = ks.pop()
+    v1 = assocs[k1]
+    replace_string = "*{" + "\n    {}: {}".format(k1, v1)
+    for i in ks:
+        v = assocs[i]
+        replace_string = '{};\n    {}: {}'.format(replace_string, i, v)
+    replace_string = '{}'.format(replace_string) + ';\n}'
+
+    lines: list = []
+    with open(f"{os.environ['HOME']}/rofi_i3theme.rasi") as f:
+        lines = f.read()
+        _, lines = lines.split('/* THEME_MODIFICATION_ENDS_HERE */')
+    lines = replace_string + '\n/* THEME_MODIFICATION_ENDS_HERE */' + lines
+    return lines
+
+
+def writerofi(colors: str):
+    if not os.path.exists(vars.f_save_rofi):
+        print(
+            f'{vars.f_save_rofi} does not exist. Please use the template provided in the repo.')
+        sys.ext(1)
+    write(vars.f_save_rofi, colors)
+
+
+ap = ap('Change window border colors of i3')
+aa = ap.add_argument
+aa('--f_bg', help='Focused window bg',  default=False)
+aa('--f_fg', help='Focused window fg', default=False)
+aa('--i_bg', help='Focused but inactive window bg', default=False)
+aa('--i_fg', help='Unfocused but inactive window fg', default=False)
+aa('--u_bg', help='Unfocused window bg', default=False)
+aa('--u_fg', help='Unfocused window fg', default=False)
+aa('--save', help='Theme name',  default=False)
+
+aa('--list', help='Interactive select', action='store_true')
+aa('--show', help='Display all the available themes.', action='store_true')
+aa('--current', help='Show current enabled theme', action='store_true')
+aa('--theme-name', help='Load the theme defined by user provided regex')
+
+aa('--rofi', help='Apply the theme for rofi. Make sure to set the theme variable in config.rasi to $HOME/rofi_i3theme.rasi. Also, ensure that you have copied the template from the repo to $HOME', action='store_true')
+aa('--polybar',
+   help='Apply the theme for polybar. Specify the path[s] to the config[s]. Separate paths with ::', default="")
+aa('--i3bar', help='Apply the theme to i3bar as well',
+   default=False, action='store_true')
+
+aa('--borders-only', action='store_true', default=False,
+   help='No titlebars but only a red colored border')
+
+a = ap.parse_args()
+thd: dict = {}
+vars.checklocs()
+rofi = a.rofi
+polybar = a.polybar
+i3bar = a.i3bar
+e = 0
+
+if a.show:
+    vars.print()
+    e = 1
+elif a.current:
+    vars.getcurrent(printcolors=True)
+    e = 1
+elif a.list:
+    thd = vars.select_from_list()
+elif a.theme_name:
+    a.theme_name = a.theme_name.lower()
+    thd = vars.search(a.theme_name)
+    if not thd:
+        print(f'No such theme found: {a.theme_name}')
+        sys.exit(1)
+else:
+    colord = {
+        "name": a.save,
+        "f_fg": a.f_fg,
+        "f_bg": a.f_bg,
+        "i_fg": a.i_fg,
+        "i_bg": a.i_bg,
+        "u_fg": a.u_fg,
+        "u_bg": a.u_bg,
+    }
+
+    e = False
+    for i in colord:
+        if not colord[i]:
+            print(i, " is not defined.")
+            e = True
+    if e:
+        sys.exit(1)
+
+    thd = colord
+
+if e == 1:
+    sys.exit(1)
+
+checkcolors(thd)
+applytheme(thd, i3bar, rofi, polybar, a.borders_only)

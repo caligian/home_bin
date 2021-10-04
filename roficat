@@ -1,0 +1,4 @@
+#!/bin/bash
+
+[ -z $1 ] && echo "Need an arg." && exit 1
+rofi -dmenu -input $1

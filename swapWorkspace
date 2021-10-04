@@ -9,15 +9,13 @@ cmd="i3-msg"
 
 target=$[$1 - 1]
 
-echo $target
-
 IFS=$'\n'
 
 workspaces=($($cmd -t get_workspaces | perl -M'JSON' -0777 -e '$json = decode_json(<>); foreach my $hashref (@$json) { print $hashref->{name}, "@", $hashref->{visible} == 0 ? "false" : "true", "\n" }'))
 
 unset IFS
 
-availableWorkspaces=(1:f 2:e+t+p 3:c 4:e 5:e+t 6:e+f 7:t+f 8:reserved 9:reserved 10:reserved)
+availableWorkspaces=(1 2 3 4 5 6 7 8 9 10)
 
 target=${availableWorkspaces[$target]}
 
@@ -26,10 +24,8 @@ echo $workspaces
 for i in ${workspaces[@]}; do
     if [[ $i =~ 'true' ]]; then
 	active=${i%%@*}
-	echo active workspace = $active
 	break
     fi
 done
 
-$cmd "rename workspace \"$active\" to temp; rename workspace \"$target\" to \"$active\"; rename workspace temp to \"$target\"; "
-
+$cmd "rename workspace \"$active\" to temp; rename workspace \"$target\" to \"$active\"; rename workspace temp to \"$target\"; " &>/dev/null

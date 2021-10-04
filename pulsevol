@@ -1,0 +1,453 @@
+#!/usr/bin/perl
+package Funcs;
+use JSON;
+use strict;
+use warnings;
+use Data::Dumper;
+use Scalar::Util qw(reftype);
+
+sub pp {
+    print(Dumper(@_));
+}
+
+# This first syncs the volumes and gets a unified volume
+# The basis of syncing is the usage of a default sink
+# If nothing is defined then use the default alsa sink
+sub get_unified_volume {
+    my ($hash, $refsink) = @_;
+    $refsink = get_all_sinks_by_regex($hash, $refsink);
+
+    if ($refsink) {
+	$refsink = $refsink->[0];
+
+	# sync all sinks
+	sync($hash, $refsink);
+
+	# print the vol in order to use it with other WMs
+	# ordinarily, you should use --get --sink|all
+	print($hash->{$refsink}{vol});
+    } else {
+	get_unified_volume($hash, "alsa");
+    }
+}
+
+sub sync {
+    my ($hash, $refsink) = @_;
+    my $refvolume = 0;
+
+    if ($refsink =~ m/[a-z]/i) {
+	my $found = 0;
+	$found = get_all_sinks_by_regex($hash, $refsink);
+	unless ($found) {
+	    print("$refsink did not match any available sinks.\n");
+	    exit 1;
+	}
+	# grab only one
+	$refvolume = $hash->{$found->[0]}{vol};
+    } elsif (not($refsink =~ /^-?[0-9]+$/)) {
+	print("--sync input should be INT or REGEX.\n");
+	exit 1;
+    } else {
+	$refvolume = int($refsink);
+    }
+    # sink all volumes in the available hash
+    map {
+	my $s = $hash->{$_};
+	$s->{vol} = $refvolume;
+	cmd_dispatcher($s, "unmute");
+    } keys(%$hash);
+
+    return 1;
+}
+
+sub repr {
+    my $sink = shift;
+    my $name = $sink->{name};
+    my $vol = $sink->{vol};
+    my $mute = $sink->{mute};
+    my $_state = $sink->{"state"};
+    print(encode_json([$name, "$vol%", $mute, $_state]));
+}
+
+sub repr_all {
+    my $hash = shift;
+    foreach my $s (keys %$hash) {
+	repr($hash->{$s});
+    }
+}
+
+sub get_all_sinks_by_regex {
+    my ($hash, $regex) = @_;
+
+    my @found = ();
+    foreach my $sink (keys(%$hash)) {
+	if ($sink =~ $regex) {
+	    push(@found, $sink);
+	}
+    }
+
+    if ($#found == -1) {
+	return 0;
+    }
+    return \@found;
+}
+
+sub cmd_dispatcher {
+    # action := mute | unmute
+    #+ unmute applies the volume after unmuting
+    #+ mute simply mutes the sink
+    #+ note that every mute other than mute will unmute the sink automatically
+    my ($sink, $action) = @_;
+    my $name = $sink->{name};
+    my $cmdmute = "/usr/bin/pactl set-sink-mute %s %i";
+    my $setvol = "/usr/bin/pactl set-sink-volume %s";
+    if ($action eq "mute") {
+	$cmdmute = sprintf($cmdmute, $name, 1);
+	qx($cmdmute);
+	print($cmdmute, "\n");
+    } else {
+	$cmdmute = sprintf($cmdmute, $name, 0);
+	qx($cmdmute);
+	$setvol = sprintf($setvol, $name) . " " . $sink->{vol} . "%";;
+	qx($setvol);
+    }
+}
+
+sub mksinkmap {
+    my ($sink, $_state, $vol, $mute) = @_;
+    return {"name" => $sink, "state" => $_state, "vol" => $vol, "mute" => $mute,};
+}
+
+sub get_sinks {
+    my $output = qx(pactl list sinks);
+    my @all  = split /Sink\s#[0-9]+/, $output;
+    shift @all;
+    my @sinks = map { m;Name:\s(.+); and $1 } @all;
+    my @vols = ();
+    my $last_volume = 10;
+    foreach my $o (@all) {
+	if ($o =~ m|Volume:[^/]+/\s+(\d+)|s) {
+	    my $v = int $1;
+	    push @vols, $v;
+	    $last_volume = $v;
+	} else {
+	    push @vols, $last_volume;
+	}
+    }
+    my @states = map { m|State:\s(.+)| and $1 } @all;
+    my @mutes = map { m|Mute:\s(.+)| and $1 } @all;
+
+    my $maps = {};
+    foreach my $i (0..$#sinks) {
+	my $sink = mksinkmap($sinks[$i], $states[$i], $vols[$i], $mutes[$i]);
+	$maps->{$sinks[$i]} = $sink;
+    }
+    return $maps;
+}
+
+sub get_sink_by_regex {
+    my ($hash, $regex) = @_;
+    my $found = undef;
+    foreach my $s (keys %$hash) {
+	if ($s =~ $regex) {
+	    return $hash->{$s};
+	}
+    }
+
+    return $found;
+}
+
+sub correct_volume {
+    my $vol = shift;
+    if ($vol > 100) {
+	$vol = 100;
+    } elsif ($vol < 0) {
+	$vol = 0;
+    }
+    return $vol;
+}
+
+sub set_volume {
+    my ($hash, $sink, $vol, $offset) = @_;
+    if ($sink = get_sink_by_regex($hash, $sink)) {
+	if ($vol == -1) {
+	    $vol = $sink->{vol};
+	}
+	$sink->{"vol"} = correct_volume($vol + $offset);
+	cmd_dispatcher($sink, "unmute");
+	return $hash;
+    };
+    return 0;
+}
+
+sub mute_volume {
+    my ($hash, $sink) = @_;
+    if ($sink = get_sink_by_regex($hash, $sink)) {
+	cmd_dispatcher($sink, "mute");
+	$sink->{mute} = 1;
+	return $hash;
+    }
+    return 0;
+}
+
+sub unmute_volume {
+    my ($hash, $sink) = @_;
+    if ($sink = get_sink_by_regex($hash, $sink)) {
+	cmd_dispatcher($sink, "unmute");
+	$sink->{mute} = 0;
+	return $hash;
+    }
+    return 0;
+}
+
+sub inc_volume {
+    my ($hash, $sink, $by) = @_;
+    $by = defined($by) ? $by : 5;
+    return set_volume($hash, $sink, -1, $by);
+}
+
+sub dec_volume {
+    my ($hash, $sink, $by) = @_;
+    $by = defined($by) ? $by : -5;
+    return set_volume($hash, $sink, -1, $by*-1);
+}
+
+sub get_bluetooth_sink {
+    my $hash = shift;
+    my $found = undef;
+    foreach my $sink (keys %$hash) {
+	$found = $sink =~ /bluez/ ? $hash->{$sink} : undef;
+    }
+    return $found;
+}
+
+sub inc_volume_all {
+    my ($hash, $by) = @_;
+    $by = defined($by) ? $by : 5;
+    foreach my $sink (keys %$hash) {
+	$hash = inc_volume($hash, $sink, $by);
+    }
+    return $hash;
+}
+
+sub dec_volume_all {
+    my ($hash, $by) = @_;
+    $by = defined($by) ? $by : 5;
+    foreach my $sink (keys %$hash) {
+	$hash = dec_volume($hash, $sink, $by);
+    }
+    return $hash;
+}
+
+sub mute_volume_all {
+    my $hash = shift;
+    foreach my $sink (keys %$hash) {
+	$hash = mute_volume($hash, $sink);
+    }
+    return $hash;
+}
+
+sub unmute_volume_all {
+    my $hash = shift;
+    foreach my $sink (keys %$hash) {
+	$hash = unmute_volume($hash, $sink);
+    }
+    return $hash;
+}
+
+sub getvol {
+    my $sink = shift;
+    return $sink->{vol};
+}
+
+sub sinkmap_from_sinklist {
+    my $sink_list = shift;
+    my $sinkmap = {};
+    foreach my $s (@$sink_list) {
+	$sinkmap->{$s->{name}} = $s;
+    }
+    return $sinkmap;
+}
+
+# takes the main hash and returns the filtered hash which can be used.
+sub filter {
+    # $what is running  or suspended
+    my ($hash, $what) = @_;
+    $what = uc $what;
+    my @new = grep { $_ if $hash->{$_}{"state"} eq $what } keys(%$hash);
+    unless ($#new == -1) {
+	@new = map { $hash->{$_} } @new;
+	my $newhash = sinkmap_from_sinklist(\@new);
+	return $newhash;
+    } else {
+	print("Did not find sinks matching status: $what\n");
+	exit 1;
+    }
+}
+
+sub get_running_sinks {
+    my $hash = shift;
+    return filter($hash, "running");
+}
+
+sub get_suspended_sinks {
+    my $hash = shift;
+    return filter($hash, "suspended");
+}
+
+package test;
+use Data::Dumper;
+
+sub test {
+    my $hash = Funcs::get_sinks();
+    my @ks = keys %$hash;
+
+    my $selsink = Funcs::get_sink_by_regex($hash, "alsa");
+    # Funcs::dec_volume($hash, $selsink->{name}, 20);
+
+    Funcs::dec_volume_all($hash);
+
+    Funcs::pp($hash);
+}
+
+package main;
+use Getopt::Long;
+
+sub assertint {
+    unless ($_[0] =~ /^\d+$/) {
+	die "$_[1]:$_[0] is not an integer";
+    }
+}
+
+my $help = "$0: Control the volume of pulseaudio sinks
+--inc		[INT]		 Increase volume by 5%
+--dec		[INT]		 Decrease volume by 5%
+--sink		[REGEX]		 Select sinks by regex
+--sync		[REGEX|INT]	 Equalize the volumes of all sinks found
+--all		[FLAG]		 Apply to all sinks
+--mute		[FLAG]		 Mute the selected sinks
+--unmute	[FLAG]		 Unmute the selected sinks
+--bluetooth	[FLAG]		 Use \"bluez\" as a search param in --sink which is usually the associated bluetooth sink
+--running	[FLAG]		 Select all sinks that are RUNNING
+--suspended	[FLAG]		 Select all sinks which are SUSPENDED
+--get		[FLAG]		 Get the volume and mute status of selected sinks
+--get-synced    [REGEX]          Use REGEX to get sinks ,sync volumes and get the synced volumes. If REGEX fails to match then use the 'alsa' sink.
+
+Caveats:
+* --running and --suspended apply a filter to all the sinks found. This means that you can use --inc --dec --mute --unmute --get with them
+* --sync gets the highest precedece (after --help). Therefore when you pass --sync input before any other inputs, the sinks are synced first and then other actions follow.
+
+Usage:
+* If REGEX is provided to --sync then use the REGEX-obtained sync to sync volumes
+* If INT   is provided to --sync then use the INT volume amount.
+* Use one of --sink --all --bluetooth			    to select sinks,
+* Use one of --inc  --dec --unmute --mute		    to perform the commands.
+* Use one of --sink --all --runnning --suspended with --get to get the volumes of the selected sinks
+
+";
+
+my ($getsynced, $sync, $get, $inc, $dec, $sink, $all, $mute, $unmute, $showhelp, $bluetooth, $running, $suspended) = (0,0,0,0,0,0,0,0,0,0,0,0,0);
+
+# to be used everywhere.
+my $mainhash = undef;
+
+GetOptions(
+    "--get-synced=s"	=> \$getsynced,
+    "--sync=s"		=> \$sync,
+    "--get"		=> \$get,
+    "--running"		=> \$running,
+    "--suspended"	=> \$suspended,
+    "--inc=i"		=> \$inc,
+    "--dec=i"		=> \$dec,
+    "--sink=s"		=> \$sink,
+    "--all"		=> \$all,
+    "--mute"		=> \$mute,
+    "--unmute"		=> \$unmute,
+    "--bluetooth"	=> \$bluetooth,
+    "--help"		=> \$showhelp,
+    ) or die "No args provided.\n";
+
+sub apply {
+    # add_all_suffix appends "all" to the end of the function name
+    my $func = shift;
+    my $hash = defined($mainhash) ? $mainhash : Funcs::get_sinks();
+
+    if ($all) {
+	return sub { $func->($hash, @_); }
+    } else {
+	if (my @sinks = Funcs::get_all_sinks_by_regex($hash, $sink)) {
+	    return sub {
+		map {
+		    my $s = $_;
+		    $func->($hash, $s, @_);
+		} @sinks
+	    }
+	} else {
+	    print("regex [$sink] did not match anything\n.");
+	    exit 1;
+	}
+    }
+}
+
+if ($showhelp) {
+    print($help);
+    exit 0;
+}
+
+if ($bluetooth) {
+    $sink = "bluez";
+}
+
+if ($getsynced) {
+    $mainhash = Funcs::get_sinks();
+    Funcs::get_unified_volume($mainhash, $getsynced);
+    exit 0;
+}
+
+if ($sync) {
+    $mainhash = Funcs::get_sinks();
+    Funcs::sync(Funcs::get_sinks(), $sync);
+}
+
+if ($running || $suspended) {
+    my $original_hash = $mainhash // Funcs::get_sinks();
+    my $use = undef;
+    $use = \&Funcs::get_running_sinks if $running;
+    $use = \&Funcs::get_suspended_sinks if $suspended;
+    if (my $new = $use->($original_hash)) {
+	$mainhash = $new;
+    }
+    $all = 1;
+}
+
+if ($inc or $dec or $mute or $unmute) {
+    my $use = undef;
+    if ($inc or $dec) {
+	if ($all) {
+	    $use = apply(\&Funcs::inc_volume_all) if $inc;
+	    $use = apply(\&Funcs::dec_volume_all) if $dec;
+	} else {
+	    $use = apply(\&Funcs::inc_volume) if $inc;
+	    $use = apply(\&Funcs::dec_volume) if $dec;
+	}
+	$use->($inc) if $inc;
+	$use->($dec) if $dec;
+    } elsif ($mute or $unmute) {
+	if ($all) {
+	    $use = apply(\&Funcs::mute_volume_all) if $mute;
+	    $use = apply(\&Funcs::unmute_volume_all) if $unmute;
+	} else {
+	    $use = apply(\&Funcs::mute_volume) if $mute;
+	    $use = apply(\&Funcs::unmute_volume) if $unmute;
+	}
+
+	$use->();
+    }
+} elsif ($get) {
+    my $use = undef;
+    $use = apply(\&Funcs::repr) unless $all;
+    $use = apply(\&Funcs::repr_all) if $all;
+    $use->();
+}
+
+exit 0;

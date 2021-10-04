@@ -1,0 +1,8 @@
+#!/bin/bash
+
+[[ -z $1 ]] || [[ $1 =~ -h ]] && echo "Input the name of the file containing the lines. Delimeter to separate lines should be a newline." && exit
+
+LINES_LOCATION="$1"
+LINES="$(cat $LINES_LOCATION)"
+INPUT="$(rofi -dmenu <<< $LINES)"
+printf "%s" $INPUT

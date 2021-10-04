@@ -16,7 +16,7 @@ $help = "$0: Remove emacs-generated ~|# prefixed/suffixed files.
 
 die $help if scalar(@ARGV) > 0 && $ARGV[0] =~ /--?h(?:elp)?/;
 
-($p_dirs, $p_maxdepth, $p_exclude, $cmd_template) = ("./::", 2, ".git::*/\.*/*", "find #PATHS# #MAXDEPTH# #EXCLUDE_DIRS# -name '*~' -or -name '*#*'");
+($p_dirs, $p_maxdepth, $p_exclude, $cmd_template) = ("./::", 2, ".git::*/\.*/*::*elc", "find #PATHS# #MAXDEPTH# #EXCLUDE_DIRS# -name '*~' -or -name '*#*'");
 GetOptions(
     "dirs=s" => \$p_dirs,
     "maxdepth=i" => \$p_maxdepth,
@@ -58,6 +58,7 @@ sub mkfindstr {
     $cmd_template =~ s/#PATHS#/$dirs/;
     $cmd_template =~ s/#MAXDEPTH#/-maxdepth $maxdepth/;
     $cmd_template =~ s/#EXCLUDE_DIRS#/$exclude/;
+    print($cmd_template, "\n");
     return $cmd_template;
 }
 

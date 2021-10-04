@@ -3,6 +3,7 @@
 cd ~/.config/i3
 rm config
 
+# cat user/variables.i3 >> config
 cat user/default.i3 >> config
 cat user/theme.i3 >> config
 cat user/modes.i3 >> config

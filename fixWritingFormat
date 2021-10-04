@@ -250,3 +250,5 @@ my $fixWritingFormat = FixWritingFormat->New();
 $fixWritingFormat->GetAbbrevsFromFile(); 
 $fixWritingFormat->SubstitutionLoop();
 
+hello world. wow what a motherfucker. -n
+hello world. wow what a motherfucker. -n -o hello

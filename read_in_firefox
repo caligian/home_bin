@@ -1,0 +1,53 @@
+#!/bin/bash
+
+function use_firefox() {
+    firefox --new-tab "$1" &
+}
+
+function use_w3m() {
+    w3m "$1"
+}
+
+DIRECTORY=
+REGEX=".*"
+USE='firefox --new-tab' 
+
+read -r -d '' HELP <<EOF
+Usage: Open html files in firefox one at a time
+\$1 [PATH]  Directory containing the HTML files
+\$2 [REGEX] Regex to match the output of ls -l to get the files. egrep shall be used to match.
+EOF
+
+[[ $1 =~ -h(elp)? ]] && echo "$HELP" && exit 0
+
+if [[ -n $1 ]]; then 
+    DIRECTORY="$1" 
+    [[ ! -d $DIRECTORY ]] && echo "$DIRECTORY does not exist" && exit 1
+else
+    echo "Need a directory path as the first argument." 
+    exit 1
+fi
+
+[[ -n $2 ]] && REGEX="$2"
+
+DIRECTORY=${DIRECTORY%%/}
+IFS=$'\n'
+output=($(ls -l $DIRECTORY | egrep "$REGEX" |  awk '{print $9}'))
+unset IFS
+
+[[ ${#output[@]} -eq 0 ]] && echo "Could not match any files with provided regex."
+
+for i in ${output[@]}; do
+    ## Add your filters here
+
+    # GKToday specific
+    [[ $i =~ [Qq]uiz|[Hh]eadlines ]] && continue
+
+    echo "> Opened: $i"
+
+    # If firefox, open in background or normally
+    [[ $USE =~ firefox ]] && use_firefox "$DIRECTORY/$i"  || use_w3m "$DIRECTORY/$i"
+
+    read -p "> Press ENTER to open the next file"
+    echo
+done

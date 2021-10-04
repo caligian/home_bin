@@ -1,16 +1,16 @@
 #!/usr/bin/perl
-use File::Basename; 
+use File::Basename;
 use Getopt::Long;
 use warnings;
 use strict;
 use JSON;
-use File::Copy; 
+use File::Copy;
 use autodie;
 use Data::Dumper;
-use Color::Rgb; 
+use Color::Rgb;
 
-my $rgb = new Color::Rgb(rgb_txt => "/etc/X11/rgb.txt"); 
-    
+my $rgb = new Color::Rgb(rgb_txt => "/etc/X11/rgb.txt");
+
 my $help = "
 $0: Change the window border settings of i3
 [Focused Container]
@@ -22,32 +22,33 @@ $0: Change the window border settings of i3
 --u_fg #xxxxxx		 : foreground
 
 [Inactive Container]
---i_bg #xxxxxx		 : background 
+--i_bg #xxxxxx		 : background
 --i_fg #xxxxxx		 : foreground
 
 [Themes]
 --save NAME_THEME	 : Save theme by NAME_THEME
---theme INDEX_THEME	 : Select theme by index. 
+--theme INDEX_THEME	 : Select theme by index.
+--theme-name NAME_THEME  : Load theme by name
 --show			 : Show all the available themes with their serial numbers.
---current                : Show current theme. 
+--current                : Show current theme.
 
 [Misc]
 --quick                  : Use this order (Comma separated HEX colors (#XXXXXX) + non-HEX STRING) format = FOCUS(BG,FG), UNFOCUS(BG,FG), INACTIVE_FOCUS(BG, FG), THEME_NAME
 
 --rofi			 : Apply the colorscheme to rofi as well. The new theme will be at \$ENV{HOME}/rofi_i3theme.rasi
 
-Caveats 
+Caveats
 1. If one BG is provided and the rest/one of them are not, the provided BG will be used for.
 2. All FGs are mandatory to provide.
 3. Providing --save THEME_NAME is mandatory.
 4. --theme and --show cannot be used with anything else.
-5. ~/currentTheme.i3 contains json formatted theme. 
+5. ~/currentTheme.i3 contains json formatted theme.
 6. ~/.config/i3/user/themes.i3 is mandatory. Better modularize your config.
 	Keep the above file blank and do not touch it if you are using this program for the first time
 7. i3bar's colors would be changed accordingly. Background and Statusline shall be set to focused BG and FG. Active Workspace's colors shall be focused BG and FG.
     ";
 
-print $help, "\n" and exit if not scalar(@ARGV) > 0; 
+print $help, "\n" and exit if not scalar(@ARGV) > 0;
 
 my $config = $ENV{HOME} . "/.config/i3/user/default.i3";
 my $themeConfig = $ENV{HOME} . "/.config/i3/user/theme.i3";
@@ -57,20 +58,19 @@ my $currentThemeFile = $ENV{HOME} . "/currentTheme.i3";
 my $barConfig = $userDir . "/bar.i3";
 my $reloadConfigPath = '/usr/bin/reloadConfig';
 
--f $config ? print '' : die "Have you installed i3? The config file is missing from its place.\n"; 
+-f $config ? print '' : die "Have you installed i3? The config file is missing from its place.\n";
 -d $userDir ? print "" : die "You need to modularize your config and then defined everything in $userDir.\n";
 -f $themeConfig ? print '' : qx/ touch $themeConfig /;
 
-
-sub ValidateHexColor; 
+sub ValidateHexColor;
 sub ApplyTheme;
-sub GetTheme; 
+sub GetTheme;
 
 sub ValidateHexColor {
     my $hexcolor = shift;
     $hexcolor =~ s/\s*//g;
     die "Not a valid HEX color [$hexcolor]\n" if $hexcolor !~ /^#[[:xdigit:]]+$/;
-    return 1; 
+    return 1;
 }
 
 sub GetTheme {
@@ -78,13 +78,13 @@ sub GetTheme {
     open my $FH, "<", $themeFile;
     my $hashref = decode_json(join "", <$FH>);
     close $FH;
-    return $hashref; 
+    return $hashref;
 }
 
 sub Makei3RofiTheme {
     my $colors = $_[0];
     my $loc = $ENV{HOME} . "/rofi_i3theme.rasi";
-    
+
     my $convertToCss;
     my $writeTheme;
     my $convertToRGBA;
@@ -94,17 +94,17 @@ sub Makei3RofiTheme {
 
 	foreach my $c (keys %$hashref) {
 	    if ($hashref->{$c} =~ /[fiu]_[fb]g/) {
-		$hashref->{$c} = "rgba(" . join(",",$rgb->hex2rgb($colors->{$hashref->{$c}})) . ")"; 
+		$hashref->{$c} = "rgba(" . join(",",$rgb->hex2rgb($colors->{$hashref->{$c}})) . ")";
 	    }
 	}
 
-	return $hashref; 
-    }; 
-    
+	return $hashref;
+    };
+
     $writeTheme = sub {
-        my ($str, $loc) = @_;
-	open my $FH, "<", $loc; 
-        my @lines = <$FH>;
+	my ($str, $loc) = @_;
+	open my $FH, "<", $loc;
+	my @lines = <$FH>;
 	close $FH;
 	while ($lines[0] !~ m|/\*@@@@@@@@@@@@@@@@@@@@\*/|) {
 	    shift @lines;
@@ -112,17 +112,17 @@ sub Makei3RofiTheme {
 	$str .= join "", @lines;
 
 	open $FH, ">", $loc;
-	print $FH $str; 
-    }; 
-    
+	print $FH $str;
+    };
+
     $convertToCss = sub {
 	my $hashref = shift;
-	my @ks = keys %$hashref; 
+	my @ks = keys %$hashref;
 	my @vs = @{$hashref}{keys %$hashref};
 	my $str = "*{\n" . join("", map { sprintf "    %s: %s;\n", $ks[$_], $vs[$_] } (0..$#ks)) . "}\n";
-	return $str; 
+	return $str;
     };
-    
+
     my %rofiColors = (
 	"selected-normal-foreground"        => "f_bg",
 	"foreground"                        => "f_fg",
@@ -154,8 +154,8 @@ sub Makei3RofiTheme {
 	"selected-active-background"        => "f_fg",
 	);
 
-    $writeTheme->($convertToCss->($convertToRGBA->(\%rofiColors, $colors)), $loc); 
-    
+    $writeTheme->($convertToCss->($convertToRGBA->(\%rofiColors, $colors)), $loc);
+
 }
 
 sub ApplyTheme {
@@ -166,7 +166,7 @@ sub ApplyTheme {
 
     my $focused = "client.focused " . $colors->{f_bg} . " " . $colors->{f_bg} . " " . $colors->{f_fg} . $colors->{f_bg} . "\n";
     my $unfocused = "client.unfocused " . $colors->{u_bg} . " " . $colors->{u_bg} . " " . $colors->{u_fg} . " " . "#000000 #000000\n";
-my $inactive_focused = "client.focused_inactive " . $colors->{i_bg} . " " . $colors->{i_bg} . " " . $colors->{i_fg} . "#000000 #000000\n "; 
+    my $inactive_focused = "client.focused_inactive " . $colors->{i_bg} . " " . $colors->{i_bg} . " " . $colors->{i_fg} . "#000000 #000000\n ";
 
     print $FH $focused;
     print $FH $unfocused;
@@ -222,12 +222,12 @@ my $inactive_focused = "client.focused_inactive " . $colors->{i_bg} . " " . $col
 	} elsif ($line =~ /binding_mode/i) {
 	    $line =~ s/#.+/$strings{binding_mode}/;
 	    --$missing{binding_mode};
-	} 
+	}
 	$blines[$i] = $line;
     }
 
     map {
-	$missing{$_} == 1 ? splice @blines, $ctr, 0, "\t" . $_ . " " . $strings{$_} . "\n" : print ""; 
+	$missing{$_} == 1 ? splice @blines, $ctr, 0, "\t" . $_ . " " . $strings{$_} . "\n" : print "";
     } keys %missing;
 
     open $FH, ">", $barConfig;
@@ -238,20 +238,20 @@ my $inactive_focused = "client.focused_inactive " . $colors->{i_bg} . " " . $col
     open $FH, "<", $config;
     my @lines = <$FH>;
     close $FH;
-    open $FH, ">", $config; 
+    open $FH, ">", $config;
     my $idx = 0;
-    my $found = 0; 
+    my $found = 0;
     foreach my $line (@lines) {
 	if ($line =~ /dmenu_run/) { $found = 1; last };
-	++$idx; 
+	++$idx;
     }
-    die "Dmenu is not being used. Not changing its colors.\n" if $found == 0; 
+    die "Dmenu is not being used. Not changing its colors.\n" if $found == 0;
     $lines[$idx] =~ s/(dmenu_run).+/$1 -b -fn 'Termsyn' -sb '$colors->{f_bg}' -sf '$colors->{f_fg}' -nb '$colors->{u_bg}' -nf '$colors->{u_fg}' -l 5/;
     $str = join "", @lines;
     print $FH $str;
     close $FH;
-    qx/$reloadConfigPath/; 
-    }
+    qx/$reloadConfigPath/;
+}
 
 
 # get all the params
@@ -267,9 +267,11 @@ my %cmdParams = ('f_bg'		=> undef,
 		 'show'		=> undef,
 		 'quick'        => undef,
 		 'current'	=> undef,
-		 'rofi'		=> undef);
+		 'rofi'		=> undef,
+		 "theme_name" => undef,);
 
 GetOptions('f_bg=s' => \$cmdParams{f_bg},
+	   "theme-name=s" => \$cmdParams{theme_name},
 	   'f_fg=s' => \$cmdParams{f_fg},
 	   'u_bg=s' => \$cmdParams{u_bg},
 	   'u_fg=s' => \$cmdParams{u_fg},
@@ -280,7 +282,7 @@ GetOptions('f_bg=s' => \$cmdParams{f_bg},
 	   'quick=s' => \$cmdParams{quick},
 	   'show' => \$cmdParams{show},
 	   'help' => \$cmdParams{help},
-    	   'current' => \$cmdParams{current},
+	   'current' => \$cmdParams{current},
 	   'rofi' => \$cmdParams{rofi});
 
 my %availableThemes = ();
@@ -290,37 +292,51 @@ print $help,"\n" and die if $cmdParams{help};
 
 if (-d $themesDir) {
     map {
-	chomp $_; 
+	chomp $_;
 	$availableThemes{$_} = $themesDir . "/" . $_;
-	push @availableThemesKeys,  $_; 
+	push @availableThemesKeys,  $_;
     } qx(ls $themesDir);
 } else {
     print "Let us hope that this is your first theme. Don't forget to name it.\n";
-    mkdir $themesDir; 
+    mkdir $themesDir;
 }
 
 if ($cmdParams{current}) {
     die "No theme has been defined yet.\n" if ! -f $currentThemeFile;
     open my $FH, "<", $currentThemeFile;
     my $currentTheme = decode_json(join "", <$FH>);
-    close $FH; 
+    close $FH;
     print $currentTheme->{name}, "\n";
-    exit; 
+    exit;
 } elsif ($cmdParams{show}) {
     my $ctr = 0;
     map {
 	printf "%-5i%-40s => %s", ++$ctr, $_, $availableThemes{$_} . "\n";
-    } @availableThemesKeys; 
+    } @availableThemesKeys;
     exit;
-} elsif ($cmdParams{theme}) {
-    die "Index out of range.\n" if $cmdParams{theme} < 1 or $cmdParams{theme} > @availableThemesKeys;
-    $cmdParams{theme} -= 1;
-    die "No such theme has been defined yet : " .  $cmdParams{theme} if not defined $availableThemesKeys[$cmdParams{theme}];
-    my $name = $availableThemes{$availableThemesKeys[$cmdParams{theme}]};
-    print $name, "\n";
-    my $hashref = GetTheme($name);
-
-    Makei3RofiTheme($hashref); 
+} elsif ($cmdParams{theme} or $cmdParams{theme_name}) {
+    my $hashref = undef;
+    if ($cmdParams{theme}) {
+	my $ctr = 0;
+	map {
+	    printf "%-5i%-40s => %s", ++$ctr, $_, $availableThemes{$_} . "\n";
+	} @availableThemesKeys;
+	my $userint = <STDIN>;
+	chomp $userint;
+	die "Index out of range.\n" if $cmdParams{theme} < 1 or $cmdParams{theme} > @availableThemesKeys;
+	$cmdParams{theme} -= 1;
+	my $name = $availableThemes{$availableThemesKeys[$cmdParams{theme}]};
+	$hashref = GetTheme($name);
+    } elsif ($cmdParams{theme_name}) {
+	my $srch = $cmdParams{theme_name};
+	$srch = qr/$srch/;
+	foreach my $theme (@availableThemesKeys) {
+	    if ($theme =~ $srch) {
+		$hashref = GetTheme($availableThemes{$theme});
+	    }
+	}
+    }
+    Makei3RofiTheme($hashref);
     ApplyTheme($hashref);
     exit;
 }
@@ -336,15 +352,15 @@ if ($cmdParams{quick}) {
     my @p = split /\s*,\s*/, $params;
     die "There should be 7 elements in total while using the --quick param.\n" if scalar @p != 7;
     die "Theme name can only consist of _ OR A-Z OR 0-9 OR a-z ([a-zA-Z0-9_]+)\n" if $p[-1] !~ /[a-zA-Z0-9_]+/;
-    
+
     $themeName = $p[-1] =~ s/\s*//rg;
-    print "User defined theme: $themeName\n";    
+    print "User defined theme: $themeName\n";
     map {
 	$p[$_] =~ s/\s*//g;
     } (0..6);
-    
+
     $colors{name} = $themeName;
-    
+
     @colors{"f_bg", "f_fg", "u_bg", "u_fg", "i_bg", "i_fg"} = map {
 	if(ValidateHexColor($p[$_])) { $p[$_] }
     } (0..5);
@@ -353,22 +369,22 @@ if ($cmdParams{quick}) {
     $colors{name} = $themeName;
     print "User defined theme: $themeName\n";
 
-	
+
     # check all the commandline parameters
     my @notDefinedBg = ();
     my @notDefinedFg = ();
     my $fgcount = 0;
-    my $bgcount = 0; 
+    my $bgcount = 0;
     my $availableBg = "";
     for my $key (keys %cmdParams) {
 	if ($key =~ /^([iuf])_(bg|fg)/) {
 	    if ($key =~ /bg/) {
 		if (defined $cmdParams{$key}) {
 		    my $p = $cmdParams{$key};
-		    ValidateHexColor($p); 
+		    ValidateHexColor($p);
 		    $availableBg = $p;
 		    $colors{$key} = $p;
-		    ++$bgcount; 
+		    ++$bgcount;
 		} else {
 		    push @notDefinedBg, $key;
 		}
@@ -376,13 +392,13 @@ if ($cmdParams{quick}) {
 	    elsif ($key =~ /fg/) {
 		if (defined $cmdParams{$key}) {
 		    my $p = $cmdParams{$key};
-		    ValidateHexColor($p); 
+		    ValidateHexColor($p);
 		    $colors{$key} = $p;
 		    ++$fgcount;
 		} else {
 		    push @notDefinedFg, $key;
 		}
-	    } 
+	    }
 	}
     }
 
@@ -390,15 +406,15 @@ if ($cmdParams{quick}) {
     die "No BG colors provided.\n" if $bgcount == 0;
     die "No FG colors provided.\n" if $fgcount == 0;
     die "Some FG colors are missing : [@notDefinedFg]\n" if $fgcount != 3;
-    
+
     print "User defined theme: $themeName\n";
-    
+
     map {
-	$colors{$_} = $availableBg; 
-    } @notDefinedBg if scalar @notDefinedBg > 0; 
+	$colors{$_} = $availableBg;
+    } @notDefinedBg if scalar @notDefinedBg > 0;
 }
 
-Makei3RofiTheme(\%colors); 
+Makei3RofiTheme(\%colors);
 ApplyTheme(\%colors);
 
-exit; 
+exit;
