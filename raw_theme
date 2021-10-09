@@ -1,0 +1,6 @@
+#!/usr/bin/ruby
+require 'aw_theme'
+
+include AwTheme
+
+AwTheme.exec()

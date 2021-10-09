@@ -1,0 +1,5 @@
+#!/bin/bash
+
+template=<<-EOF
+Usage: Create a basic user unit file to be used with systemd
+EOF
