@@ -1,0 +1,236 @@
+#!/usr/bin/ruby
+
+require 'optparse'
+
+class Application
+  VALID_KEYS = {
+    type: 'Application',
+    name: true,
+    generic_name: false,
+    no_display: false,
+    exec: true,
+    comment: false,
+    icon: false,
+    only_show_in: false,
+    not_show_in: false,
+    keywords: false,
+    dbus_activable: false,
+    terminal: false,
+    mime_type: false,
+    hidden: false,
+    startup_notify: false,
+    startup_wm_class: false,
+    url: false,
+    single_main_window: false,
+    implements: false,
+    categories: false,
+    actions: false,
+    try_exec: false,
+    prefers_non_default_gpu: false,
+    path: false,
+  }
+
+  attr_reader *VALID_KEYS.filter {|k, v| v}.keys
+
+  def initialize(**kwargs)
+    kwargs = kwargs || {}
+    kwargs = VALID_KEYS.merge kwargs
+    kwargs.each {|k, v|
+      if k == :save
+        kwargs.delete :save
+        next
+      end
+      raise "#{k} is an invalid key" unless VALID_KEYS.has_key? k
+      self.instance_variable_set("@#{k}", v) if v
+    }
+    raise "No name specified" unless kwargs.has_key? :name
+    raise "No command specified" unless kwargs.has_key? :exec
+    @type_s = [:url, :type, :version, :name, :version, :generic_name, :comment, :icon, :try_exec, :exec, :mime_type]
+    @type_b = [:single_main_window, :startup_notify, :terminal, :dbus_activable, :hidden, :no_display, :prefers_non_default_gpu]
+    @type_a = [:mime_type, :categories, :implements, :keywords, :only_show_in, :not_show_in]
+    update
+  end
+
+  def update
+    assert = lambda { |type, obj| 
+      if type == [TrueClass, FalseClass]
+        obj == true or obj == false or raise "#{obj} is not true or false"
+      else
+        if type.to_s != obj.class.name
+          raise "#{obj} is not of type #{type}"
+        end
+      end
+    }
+
+    @app_h = {s: {}, a: {}, b: {}}
+    get_inst = lambda {|k|
+      self.instance_variable_get("@#{k}")
+    }
+
+    @type_s.each {|k| 
+      v = get_inst.call k 
+      next unless v
+      assert.call String, v
+      @app_h[:s][k] = v
+    }
+    @type_b.each {|k| 
+      v = get_inst.call k 
+      next unless v
+      assert.call [TrueClass, FalseClass], v
+      @app_h[:b][k] = v
+    }
+    @type_a.each {|k| 
+      v = get_inst.call k
+      next unless v
+      assert.call Array, v
+      @app_h[:a][k] = v
+    }   
+
+    @app_h
+  end
+
+
+  def compile(save: false)
+    str = ['[Desktop Entry]']
+    to_camel_case = lambda {|s| 
+      s = s.to_s
+      if s == :dbus_activable
+        'DBusActivable'
+      elsif s == :startup_wm_class
+        'StartupWMClass'
+      elsif s == :url
+        'URL'
+      elsif s == :prefers_non_default_gpu
+        'PrefersNotDefaultGPU'
+      else
+        s.split('_').map(&:capitalize).join ''
+      end
+    }
+    as_s = lambda {|key|  
+      h = @app_h[key]
+      h.map {|k, v|
+        if v.is_a? Array
+          v = v.join ';'
+          v = v =~ /;$/ ? v : v + ';'
+        end
+
+        s = "#{to_camel_case.call k}=#{v}" 
+      }.join("\n").chomp
+    }
+
+    str.push  as_s.call :s
+    str.push(as_s.call :b) if @app_h[:b].length > 0
+    str.push(as_s.call :a) if @app_h[:a].length > 0
+
+    if @actions
+      actions = compile_actions
+      idx = actions.length
+      str[idx] = str[idx] + %Q(\n\n#{actions.join "\n"})
+    end
+
+    str.join("\n").chomp
+  end
+
+  def compile_actions
+    return unless @actions
+    raise "#{@actions} is not a Hash" unless @actions.is_a? Hash
+    str = []
+
+    @actions.each {|k,v|
+      str.push "[Desktop Action #{k}]"
+      raise "#{v} is not a Hash of {:exec, :name, :icon}" unless v.is_a? Hash
+      raise "No name specified: #{v}" unless v.has_key? :name
+      raise "No command specified: #{v}" unless v.has_key? :exec
+      str.push "Name=#{v[:name]}"
+      str.push "Exec=#{v[:exec]}"
+      str.push "Icon=#{v[:icon]}" if v.has_key? :icon
+    }
+
+    str
+  end
+
+  class << self
+    def parse_options
+      options = {}
+
+      OptionParser.new do |opts|
+        opts.banner = 'Usage: mkdesktop [options]'
+        optset = lambda {|k,v| options[k] = v}
+
+        # Switches
+        opts.on('', '--startup_notify', %(If true, it is KNOWN that the application will send a "remove" message when started with the DESKTOP_STARTUP_ID environment variable set. If false, it is KNOWN that the application does not work with startup notification at all (does not shown any window, breaks even when using StartupWMClass, etc.). If absent, a reasonable handling is up to implementations (assuming false, using StartupWMClass, etc.). (See the Startup Notification Protocol Specification for more details).)) {|v| optset.call :startup_notify, v}
+        opts.on('', '--hidden', %(Hidden should have been called Deleted. It means the user deleted (at his level) something that was present (at an upper level, e.g. in the system dirs). It's strictly equivalent to the .desktop file not existing at all, as far as that user is concerned. This can also be used to "uninstall" existing files (e.g. due to a renaming) - by letting make install install a file with Hidden=true in it.)) {|v| optset.call :only_show_in, v}
+        opts.on('', '--dbus_activable', %(If this key is missing, the default value is false. If the value is true then implementations should ignore the Exec key and send a D-Bus message to launch the application. See D-Bus Activation for more information on how this works. Applications should still include Exec= lines in their desktop files for compatibility with implementations that do not understand the DBusActivatable key.)) {|v| optset.call :dbus_activable, v}
+        opts.on('', '--prefers_non_default_gpu', %(If true, the application prefers to be run on a more powerful discrete GPU if available, which we describe as “a GPU other than the default one” in this spec to avoid the need to define what a discrete GPU is and in which cases it might be considered more powerful than the default GPU. This key is only a hint and support might not be present depending on the implementation.)) {|v| optset.call :prefers_non_default_gpu, v}
+        opts.on('', '--single_main_window', %(If true, the application has a single main window, and does not support having an additional one opened. This key is used to signal to the implementation to avoid offering a UI to launch another window of the app. This key is only a hint and support might not be present depending on the implementation.)) {|v| optset.call :single_main_window, v}
+        opts.on('', '--no_display', %(NoDisplay means "this application exists, but don't display it in the menus". This can be useful to e.g. associate this application with MIME types, so that it gets launched from a file manager (or other apps), without having a menu entry for it (there are tons of good reasons for this, including e.g. the netscape -remote, or kfmclient openURL kind of stuff).))  {|v| optset.call :no_display, v}
+
+        # String
+        opts.on('', '--url String', String, ) {|v| optset.call :url, v}
+        opts.on('-o', '--output String', String, 'Name of the output file in ~/.config/autostart') {|v| optset.call :save, v}
+        opts.on('', '--type String', String, %(This specification defines 3 types of desktop entries: Application (type 1), Link (type 2) and Directory (type 3). To allow the addition of new types in the future, implementations should ignore desktop entries with an unknown type. )) {|v| optset.call(:type, v) }
+        opts.on('-n', '--name String', String, %(Specific name of the application, for example "Mozilla".)) {|v| optset.call :name, v }
+        opts.on('', '--version String', String, %(Version of the Desktop Entry Specification that the desktop entry conforms with. Entries that confirm with this version of the specification should use 1.5. Note that the version field is not required to be present.)) {|v| optset.call :version, v }
+        opts.on('', '--generic_name String', String, %(Generic name of the application, for example "Web Browser".)) {|v| optset.call :generic_name, v}
+        opts.on('-e', '--exec String', String, %(Program to execute, possibly with arguments. See the Exec key for details on how this key works. The Exec key is required if DBusActivatable is not set to true. Even if DBusActivatable is true, Exec should be specified for compatibility with implementations that do not understand DBusActivatable.)) {|v| optset.call :exec, v}
+        opts.on('', '--comment String', String, %(Tooltip for the entry, for example "View sites on the Internet". The value should not be redundant with the values of Name and GenericName.)) {|v| optset.call :comment, v}
+        opts.on('', '--icon String', String, %(Icon to display in file manager, menus, etc. If the name is an absolute path, the given file will be used. If the name is not an absolute path, the algorithm described in the Icon Theme Specification will be used to locate the icon.)) {|v| optset.call :icon, v}
+        opts.on('', '--path String', String, %(If entry is of type Application, the working directory to run the program in.)) {|v| optset.call :path, v}
+        opts.on('', '--startup_wm_class String', %(If specified, it is known that the application will map at least one window with the given string as its WM class or WM name hint (see the Startup Notification Protocol Specification for more details).)) {|v| optset.call :startup_wm_class, v}
+
+        # Array
+        opts.on('', '--only_show_in Array', Array, %(By default, a desktop file should be shown, unless an OnlyShowIn key is present, in which case, the default is for the file not to be shown.)) {|v| optset.call :only_show_in, v}
+        opts.on('', '--not_show_in Array', Array, 'If an entry is found in NotShowIn then the desktop file is not shown') {|v| optset.call :not_show_in, v}
+        opts.on('', '--keywords Array', Array, %(A list of strings which may be used in addition to other metadata to describe this entry. This can be useful e.g. to facilitate searching through entries. The values are not meant for display, and should not be redundant with the values of Name or GenericName.)) {|v| optset.call :keywords, v}
+        opts.on('', '--terminal', 'Whether the program runs in a terminal window.') {|v| optset.call :terminal, v}
+        opts.on('', '--mime_type Array', Array, 'The MimeType key is used to indicate the MIME Types that an application knows how to handle. It is expected that for some applications this list could become long. An application is expected to be able to reasonably open files of these types using the command listed in the Exec key.') {|v| optset.call :mime_type, v}
+        opts.on('', '--implements Array', Array, %(The Implements key can be used to declare one or more interfaces that a desktop file implements. Each interface name must follow the rules used for D-Bus interface names, but other than that, they have no particular meaning. For instance, listing an interface here does not necessarily mean that this application implements that D-Bus interface or even that such a D-Bus interface exists. It is entirely up to the entity who defined a particular interface to define what it means to implement it.)) {|v| optset.call :implements, v}
+        opts.on('', '--categories Array', Array, 'Categories in which the entry should be shown in a menu (for possible values see the Desktop Menu Specification).') {|v| optset.call :categories, v}
+        opts.on('', '--actions Array', Array, %(Identifiers for application actions. This can be used to tell the application to make a specific action, different from the default behavior. The Application actions section describes how actions work.)) {|v| 
+          all = {}
+
+          v.each { |kv| 
+            vs = {}
+            raise "No name provided in #{kv}" unless kv =~ /name/ 
+            raise "No exec provided in #{kv}" unless kv =~ /exec/ 
+            raise "No action name provided in #{kv}" unless kv =~ /action/ 
+            kv.gsub(/(^\s*|\s*$)/, '').split(';').each {|key_value|
+              key, value = key_value.split /\s*=\s*/
+              key = key.lstrip; key.rstrip
+              value = value.lstrip; value.rstrip
+              if key == "action" and !all.has_key? value
+                all[value] = vs
+              end
+              vs[key] = value
+            } 
+          }
+
+          optset.call :actions_h, all
+        }
+        opts.on('', '--try_exec String', String, %(Path to an executable file on disk used to determine if the program is actually installed. If the path is not an absolute path, the file is looked up in the $PATH environment variable. If the file is not present or if it is not executable, the entry may be ignored (not be used in menus, for example).)) {|v| optset.call :try_exec, v}
+      end.parse!
+
+      required = lambda {|k| raise "--#{k} is not passed" unless options.has_key? k}
+      required.call :name
+      required.call :exec
+      options[:type] = options[:type] || 'Application'
+      options
+    end
+
+
+    def compile_from_options
+      options = Application.parse_options
+      app = Application.new **options
+      save = false
+      s = app.compile
+
+      if options[:save]
+        File.write(File.join(ENV['HOME'], '.config', 'autostart', "#{options[:save]}.desktop"), s)
+      else
+        puts s
+      end
+    end
+  end
+end
+
+Application.compile_from_options

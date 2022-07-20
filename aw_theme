@@ -1,3 +1,0 @@
-#!/bin/bash
-
-java -jar /home/Minerva/bin/aw_theme.jar $*

@@ -1,9 +1,0 @@
-#!/bin/bash
-
-if [[ -n $(ps -e | grep -i plasma) ]]; then
-    current_time=$(date +%H | xargs)
-    cmd="lookandfeeltool -a"
-    lightcmd="$cmd org.kde.breeze.desktop"
-    darkcmd="$cmd org.kde.breezedark.desktop"
-    [[ $current_time -ge 22 ]] && eval $darkcmd || eval $lightcmd
-fi
