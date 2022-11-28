@@ -1,8 +1,0 @@
-#!/bin/bash
-
-[[ $1 =~ -h(elp)? ]] && echo 'Usage: Copy Github PAT to clipboard' 
-[[ ! -f $HOME/PAT.txt ]] && echo 'No PAT for github found in homedir'
-[[ ! -f /usr/bin/xclip ]] && echo 'Please install xclip' 
-
-cat $HOME/PAT.txt | xclip -sel clipboard
-
