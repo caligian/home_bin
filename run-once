@@ -1,0 +1,21 @@
+#!/bin/bash
+
+HELP=$(cat <<EOF
+Usage: Run a program only once using pattern matching on output of \`ps -o pid -C=PROGRAM --no-headers\`
+\$1: Name of the program
+EOF
+)
+
+[[ $1 =~ ^-h ]] && echo -e "$HELP" && exit 1
+[[ -z $1 ]] && echo 'No program provided.' && exit 1
+
+IFS=$'\n'
+PID=($(ps -o pid --no-headers -C $1))
+unset IFS
+
+if [[ ${#PID[@]} -eq 0 ]]; then
+    echo "$1 was not running before. Running it now"
+    $1 &
+else
+    echo "PID(s) found for $1. Will not run $1"
+fi

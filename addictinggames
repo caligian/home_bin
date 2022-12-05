@@ -1,0 +1,15 @@
+#!/usr/bin/ruby
+
+require 'open-uri'
+
+ARGV.length == 0 && abort("No addictinggames.com URL provided")
+
+URL = ARGV.shift
+HTML = URI.open URL
+SWF = HTML.read.match /embedUrl":"([^"]+)/
+!SWF && abort("Could not find SWF URL")
+
+SAVE_DIR = "#{ENV['HOME']}/AddictingGames"
+!Dir.exist?(SAVE_DIR) && Dir.mkdir(SAVE_DIR)
+
+`curl --output #{SAVE_DIR}/#{File.basename URL}.swf #{SWF[1]}`

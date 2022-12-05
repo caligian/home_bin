@@ -25,11 +25,11 @@ HELP="Usage: Make a default template for systemd service and open it in editor s
 [[ $1 =~ -h(elp)? ]] && echo "$HELP" && exit 1
 
 DEST=$HOME/.config/systemd/user
-[[ ! -d  $DEST ]] && mkdir $DEST
+[[ ! -d  $DEST ]] && mkdir -p $DEST
 
 DEST="$DEST/template.service"
 echo "$TEMPLATE" > $DEST
 
-EDITOR=${EDITOR:-nvim-qt}
+EDITOR=${EDITOR:-nvim}
 $EDITOR $DEST
 
