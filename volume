@@ -1,0 +1,83 @@
+#!/usr/bin/python3
+
+import subprocess
+import os
+import sys
+import re
+
+def get_sinks():
+    output = subprocess.check_output(["pactl", "list", "sinks"]).decode().split("\n")
+    output = [x for x in output if len(x) > 0]
+    sinks = {}
+    last_sink = None
+
+    for line in output:
+        if sink := re.search(r"^Sink #(\d+)", line):
+            last_sink = int(sink.group(1))
+        elif re.match(r"^\t(State|Name|Description|Mute|Volume)", line):
+            [prop, value] = line.split(":", maxsplit=1)
+            prop = re.sub(r"(^\s*|\s*$)", "", prop)
+            value = re.sub(r"(^\s*|\s*$)", "", value)
+
+            if not sinks.get(last_sink):
+                sinks[last_sink] = {prop: value}
+            else:
+                sinks[last_sink][prop] = value
+
+            if 'Volume' in prop:
+                volumes = re.split(r"\s*,\s*", value)
+                volumes = [int(re.search(r"(\d+)(?=%)", x).group(1)) for x in volumes]
+                sinks[last_sink][prop] = volumes
+
+    return sinks
+
+
+def filter_sinks(sinks, regex=".*"):
+    res = {}
+
+    for sink, props in sinks.items():
+        if re.search(re.compile(regex), props['Name']):
+            res[sink] = props
+
+    return res
+
+
+def set_volume(sinks, do, by=5, regex=r".*"):
+    sinks = filter_sinks(sinks, regex)
+
+    for sink, props in sinks.items():
+        sink = str(sink)
+        cmd = ["pactl", "set-sink-volume", sink, f"{do}{by}%"]
+        print(cmd)
+        subprocess.run(cmd)
+
+
+def main():
+    do = '+'
+    by = 5
+    sinks = get_sinks()
+
+    match sys.argv:
+        case [_, action, by, regex]:
+            set_volume(sinks, action, by=int(by), regex=regex)
+
+        case [_, "--help"]:
+            print(f"""{sys.argv[0].replace(os.getenv("HOME"), "~")}: Increase/Decrease volume of pulseaudio sinks
+
+Valid specifications:
+<+|-> <inc/dec amount> <sink_regex>
+<+|-> <inc/dec amount>
+<+|->""")
+
+            sys.exit(0)
+
+        case [_, action, by]:
+            set_volume(sinks, action, by=int(by))
+
+        case [_, action]:
+            set_volume(sinks, action)
+
+        case _:
+            raise ValueError(f"Invalid specification {sys.argv}")
+            
+main()

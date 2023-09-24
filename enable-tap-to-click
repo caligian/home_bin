@@ -1,13 +1,5 @@
 #!/bin/bash
 
-[[ $UID -ne 0 ]] && echo 'Script should be run with sudo'
+[[ ! -f /usr/bin/gsettings ]] && echo 'gsettings is missing. Please install it' && exit 1
 
-echo 'Section "InputClass"
-        Identifier "libinput touchpad catchall"
-        MatchIsTouchpad "on"
-        MatchDevicePath "/dev/input/event*"
-        Driver "libinput"
-        Option "Tapping" "on"
-EndSection' > /etc/X11/xorg.conf.d/40-libinput.conf
-
-echo 'Please restart your display manager'
+gsettings set org.gnome.desktop.peripherals.touchpad tap-to-click true  

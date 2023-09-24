@@ -1,0 +1,13 @@
+#!/bin/bash
+
+tmux list-sessions
+
+if [[ $? -eq 1 ]]; then
+    tmux
+else
+    if [[ $* = "" ]]; then
+        tmux attach-session -t 0
+    else
+        eval "tmux attach-session -t 0 ; tmux send-keys -t 0 nvim ENTER"
+    fi
+fi

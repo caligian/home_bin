@@ -1,0 +1,75 @@
+#!/usr/bin/env elixir
+
+defmodule I3Theme do
+  @config_dir Path.join([System.get_env("HOME"), ".config", "i3"])
+  @theme_file Path.join(@config_dir, "theme.i3")
+  @fallback_theme_file Path.join(@config_dir, "config")
+  @dest_file @fallback_theme_file
+  @classes [:border, :background, :text, :indicator, :child_border]
+  @help "#{__ENV__.file}: Set theme for i3wm"
+
+  defp load(src) do
+    regex = ~r(^client\.)
+    sep = ~r(\s+)
+    lines = File.read!(src) 
+            |> String.split("\n")
+            |> Enum.filter(&String.match?(&1, regex))
+            |> Enum.map(fn line -> 
+              line = String.split(line, sep) |> Enum.filter(&(String.length(&1) > 0))
+              class = Enum.at(line, 0)
+              colors = Enum.slice(line, 1..length(line)-1)
+              given = Enum.slice(@classes, 0..length(colors)-1)
+              given = Enum.zip(given, colors)
+
+              {class, Map.new(given)}
+            end)
+            |> Map.new
+    lines
+  end
+
+  def save!(spec) do
+    lines = Map.keys(spec) 
+            |> Enum.map(fn k -> 
+              v = spec[k]
+
+              case map_size(v) do
+                1 -> 
+                  "#{k} #{v.border}"
+
+                5 ->
+                  "#{k} #{v.border} #{v.background} #{v.text} #{v.indicator} #{v.child_border}"
+
+                n ->
+                  throw {:invalid_spec, {n, k, v}}
+              end
+            end)
+            |> Enum.join("\n")
+
+
+    File.write!(@dest_file, lines) 
+    lines
+  end
+
+  def load!() do
+    load(@theme_file)
+  end
+
+  def load!(src) do
+    load(src)
+  end
+
+  def parse_cmdline() do
+    
+  end
+
+  def main() do
+    
+  end
+end
+
+spec = I3Theme.load!()
+I3Theme.save!(spec)
+
+# pending
+
+# vim: ft=elixir
