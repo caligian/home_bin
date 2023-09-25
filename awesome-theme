@@ -117,8 +117,6 @@ def parse_cmdline():
     add("--fg-focus", help="focused foreground color")
     add("--bg-urgent", help="urgent background color")
     add("--fg-urgent", help="urgent foreground color")
-    add("--border-width", type=int, help="border width in pixels (int)")
-    add("--border-color", help="border color")
     add("--font", help="font to be used")
     add("--name", help="theme name")
     add("-l", "--list", help="list available themes")
@@ -142,10 +140,10 @@ def parse_cmdline():
     return args
 
 def main():
+    copy_themes()
+
     args = parse_cmdline()
     print(to_lua_table(args))
 
 
 main()
-
-
