@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+
+import re
+import shutil
+import os
+import json
+import sys
+import argparse
+from glob import glob
+
+"""
+Themes will be present in ~/.config/awesome/themes
+"""
+
+HOME = os.getenv("HOME")
+AWESOME_DIR = os.path.join(HOME, ".config", "awesome")
+AWESOME_THEMES_DIR = os.path.join(AWESOME_DIR, "themes")
+AWESOME_DEFAULT_THEMES_DIR = "/usr/share/awesome/themes"
+AWESOME_CONFIG_LUA_FILE = os.path.join(AWESOME_DIR, "theme.lua")
+AWESOME_COLORSCHEMES_DIR = os.path.join(AWESOME_DIR, "colorschemes")
+
+
+def to_lua_table(spec: dict) -> str:
+    lua = ["return {"]
+
+    for key, value in spec.items():
+        if key == 'list' or key == 'merge' or not value:
+            continue
+
+        lua.append(f"   {key} = '{value}',")
+
+    lua.append("}")
+    return ("\n").join(lua)
+
+
+def list_colorschemes(names_only=False) -> list[str]:
+    if not os.path.isdir(AWESOME_COLORSCHEMES_DIR):
+        os.mkdir(AWESOME_COLORSCHEMES_DIR)
+
+    colorschemes = sorted(glob(f"{AWESOME_COLORSCHEMES_DIR}/*.json"))
+
+    if names_only:
+        return list(map(os.path.basename, colorschemes))
+
+    return colorschemes
+
+
+def set_colorscheme(name, colorschemes: list = None) -> bool:
+    if not colorschemes:
+        colorschemes = list_colorschemes(names_only=True)
+    elif not colorschemes.index(name):
+        return False
+
+    src = os.path.join(AWESOME_COLORSCHEMES_DIR, f"{name}.json")
+    with open(src) as fh:
+        spec = json.load(fh)
+        spec = to_lua_table(spec)
+
+        with open(AWESOME_CONFIG_LUA_FILE, "w") as fh:
+            fh.write(spec)
+            return True
+
+
+def load_colorscheme(name, merge: dict=None) -> dict | None:
+    src = os.path.join(AWESOME_COLORSCHEMES_DIR, f'{name}.json')
+
+    if not os.path.isfile(src):
+        return
+
+    with open(src) as fh:
+        spec = json.load(fh)
+
+        if merge:
+            spec.update(merge)
+
+        return spec
+
+
+def copy_themes():
+    if not os.path.isdir(AWESOME_THEMES_DIR):
+        shutil.copytree(AWESOME_DEFAULT_THEMES_DIR, AWESOME_THEMES_DIR)
+
+
+def check_args(args: dict) -> dict:
+    results = {}
+    key_regex = r"(bg|fg|color|normal|focus|urgent)"
+    hex_regex = r"^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})"
+    colors_given = False
+
+    for k, v in args.items():
+        if not v:
+            continue
+
+        if type(v) == str and re.search(key_regex, k):
+            colors_given = True
+
+            if not re.match(hex_regex, v):
+                raise ValueError(f"{k}: invalid hex {v}")
+
+        results[k] = v
+
+
+    
+    if colors_given and not args['name']:
+        raise ValueError("no name for colorscheme provided")
+
+    return results
+
+
+def parse_cmdline():
+    parser = argparse.ArgumentParser(description="Theme setter for awesome wm")
+    add = parser.add_argument
+
+    add("--bg-normal", help="normal background color")
+    add("--fg-normal", help="normal foreground color")
+    add("--bg-focus", help="focused background color")
+    add("--fg-focus", help="focused foreground color")
+    add("--bg-urgent", help="urgent background color")
+    add("--fg-urgent", help="urgent foreground color")
+    add("--border-width", type=int, help="border width in pixels (int)")
+    add("--border-color", help="border color")
+    add("--font", help="font to be used")
+    add("--name", help="theme name")
+    add("-l", "--list", help="list available themes")
+    add("--merge", action='store_true', help="list available themes")
+
+    args = parser.parse_args()
+    args = check_args(args.__dict__)
+
+    if args.get('list'):
+        colorschemes = list_colorschemes()
+
+        if len(colorschemes) == 0:
+            raise ValueError("no colorschemes have been added")
+
+        for i in colorschemes:
+            print(i)
+
+        exit(0)
+
+
+    return args
+
+def main():
+    args = parse_cmdline()
+    print(to_lua_table(args))
+
+
+main()
+
+
