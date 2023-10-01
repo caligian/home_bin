@@ -1,0 +1,170 @@
+#!/usr/bin/python3.11 
+
+import shlex
+import re
+import subprocess as shell
+import sys
+import os
+import time
+import json
+from argparse import ArgumentParser
+
+class Shell:
+    def __init__(self, cmds, timeout=1):
+        self.cmds = cmds
+        self.procs = {}
+        self.stdout = {}
+        self.errors = {}
+        self.returncodes = {}
+        self.timeout = timeout
+
+    def run(self):
+        for cmd in self.cmds:
+            self.procs[cmd] = shell.Popen([cmd], shell=True, stdout=shell.PIPE)
+
+    def wait(self, cmds=None, timeout=False, tries=5):
+        if not cmds:
+            return self.wait(self.cmds)
+        elif not timeout:
+            timeout = self.timeout
+
+        def wait_for_cmd(cmds):
+            failed = []
+
+            while len(cmds) > 0:
+                current = cmds[0]
+                cmds = cmds[1:]
+                proc = self.procs[current]
+
+                try:
+                    out, errs = proc.communicate(timeout=timeout)
+                    if errs:
+                        self.errors[current] = errs
+
+                    if proc.returncode == 0:
+                        if not self.stdout.get(current):
+                            out = out.decode().split("\n")
+                            self.stdout[current] = []
+
+                        self.stdout[current].extend(out)
+
+                except shell.TimeoutExpired:
+                    failed.append(current)
+
+            return failed
+
+        current_try = 0
+
+        while current_try != tries or cmds != []:
+            failed = wait_for_cmd(cmds)
+
+            match len(failed):
+                case 0:
+                    break
+
+                case _:
+                    ind = [cmds.index(x) for x in failed]
+                    cmds = [cmds[i] for i in range(len(cmds)) if i != ind]
+                    current_try = current_try + 1
+
+
+        for cmd, proc in self.procs.items():
+            self.returncodes[cmd] = proc.returncode
+
+
+        return all([True for x in self.procs.values() if x.returncode == 0])
+
+def add_default_subs(xs: list) -> list:
+    out = []
+
+    for x in xs:
+        d = {}
+        d['basename'] = os.path.basename(x)
+        d['abspath'] = os.path.abspath(x)
+        d['dirname'] = os.path.dirname(x)
+        d['ext'] = (".").join(x.split('.')[1:])
+
+        out.append(x.format(**d))
+
+    return out
+
+def parse_cmdline() -> tuple[tuple, int]:
+    parser = ArgumentParser('python equivalent for xargs')
+    add = parser.add_argument
+
+    add('--cmd', nargs='+', required=True, help='command with python placeholder strings')
+    add('-t', '--timeout', default=10, help='default timeout to check for polling for output')
+    add('-i', '--path', help='read lines for path')
+    add('--stdin', action='store_true', help='read lines from stdin (default)')
+    add('--defs', nargs='+', help='placeholder definitions')
+    add('--sep', nargs=1, help='record separation (default: "\n")', default="\n")
+
+    args: dict = vars(parser.parse_args())
+    definitions: list = args.get('defs', [])
+    defs: dict = {}
+    l = len(definitions)
+    path: str = args['path']
+    sep: str = args['sep'][0]
+    records: list[str] = []
+    timeout: int = int(args['timeout'])
+    cmd: str = (' ').join(args['cmd'])
+    cmds: list[str] = []
+    failed = []
+
+    if path: 
+        if not os.path.isfile(path):
+            raise ValueError(f"invalid path {path}")
+        else:
+            with open(path) as fh:
+                records = fh.read().split(sep)
+    elif not args['stdin']:
+        raise ValueError(f"no records provided. use -i or pass records through stdin")
+    else:
+        records = sys.stdin.read().split(sep)
+
+    if l == 0:
+        cmds = add_default_subs(records)
+    elif l % 2 != 0:
+        raise ValueError(f"expected an even number of args, got {l}")
+    else:
+        def parse_cmds(cmd: str, recs: list, defs: dict) -> tuple[list, list]:
+            out = []
+
+            for i, x in enumerate(recs):
+                found = {'abspath': os.path.abspath(x),
+                         'dirname': os.path.dirname(x),
+                         '_': x,
+                         'basename': 'x',
+                         'ext': (".").join(x.split('.')[1:])}
+                items = defs.items()
+                fails = 0
+
+                for var, r in items:
+                    r = re.compile(r)
+
+                    if m := re.search(r, x):
+                        found[var] = m.group()
+                    else:
+                        fails = fails + 1
+
+                if fails != len(items):
+                    out.append(cmd.format(**found))
+                else:
+                    failed.append((i, x))
+
+            return (out, failed)
+
+        placeholder:list = [definitions[i] for i in range(l) if i % 2 == 0]
+        sub: list = [definitions[i] for i in range(l) if i % 2 != 0]
+        defs = dict(zip(placeholder, sub))
+        (cmds, failed) = parse_cmds(cmd, records, defs)
+
+    return ((cmds, failed), timeout)
+
+def main():
+    [cmds, failed], timeout = parse_cmdline()
+    runner = Shell(cmds, timeout=timeout)
+    runner.run()
+    runner.wait()
+
+main()
