@@ -1,0 +1,56 @@
+#!/usr/bin/python3
+
+import sys, os, subprocess, argparse
+
+def put_lines(fname, lines, action):
+    if not os.path.isfile(fname):
+        return
+    
+    with open(fname) as fh:
+        file = fh.read().split("\n")
+        all_lines = []
+
+        if action == 'prepend':
+            lines.extend(file)
+            all_lines = lines
+        else:
+            file.extend(lines)
+            all_lines = file
+
+    with open(fname, 'w') as fh:
+        fh.write(("\n").join(all_lines))
+        return True
+
+def cmdline():
+    parser = argparse.ArgumentParser(description='Append or prepend lines to a file')
+    add_arg = parser.add_argument
+
+    add_arg('-i', '--stdin', action='store_true', help='use stdin')
+    add_arg('-o', '--output', nargs=1, help='file to put lines in', required=True)
+    add_arg('-l', '--lines', nargs='+', help='lines to add to file. cannot be used with --stdin')
+    add_arg('-a', '--append', action='store_true', help='append lines?')
+    add_arg('-p', '--prepend', action='store_true', help='prepend lines?')
+
+    args = parser.parse_args()
+    lines = []
+
+    if args.stdin:
+        lines = sys.stdin.read().strip().split("\n")
+    else:
+        lines = args.lines
+
+    outfile = args.output
+    if not lines or len(lines) == 0:
+        raise ValueError("expected at least one line, got none")
+
+    outfile = outfile[0]
+    if args.append:
+        return (outfile, lines, 'append')
+    else:
+        return (outfile, lines, 'prepend')
+
+
+def main():
+    put_lines(*cmdline())
+
+main()

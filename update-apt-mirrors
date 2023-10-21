@@ -1,0 +1,23 @@
+#!/bin/bash
+
+[[ $UID -ne 0 ]] && echo 'please run the script as root user' && exit 0
+
+install_netselect() {
+    if [[ $(whereis netselect | cut -d ':' -f 2) ]]; then
+        return
+    else
+        cd /tmp
+        wget http://ftp.us.debian.org/debian/pool/main/n/netselect/netselect_0.3.ds1-29_amd64.deb
+        sudo dpkg -i netselect_0.3.ds1-29_amd64.deb
+    fi
+}
+
+fetch_mirrors() {
+    wget -q0 - mirrors.ubuntu.com/mirrors.txt > /tmp/mirrorlist
+}
+
+get_current_source() {
+    grep -Eo "http://[^ ]+" /etc/apt/sources.list | grep /ubuntu | uniq | head -n 
+}
+
+get_current_source

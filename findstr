@@ -1,0 +1,23 @@
+#!/bin/bash
+
+help() {
+    echo "Usage: find files and grep/sed on them"
+    echo "argument 1: fdfind pattern"
+    echo "argument 2: fdfind directory"
+    echo "argument 3: / for grep; // for sed"
+    echo "rest args: for grep or sed"
+    exit 0
+}
+
+[[ $1 = "--help" ]] || [[ $1 = "-h" ]] && help
+
+len=${#@}
+pattern="$1"
+directory="$2"
+action="$3"
+rest="${@:4:$len}"
+
+[[ -z $action ]] && echo "no action specified" && exit 1
+[[ $action = "/" ]] && action="grep -En" || action="sed -ri"
+
+eval "fdfind --type f $pattern $directory -X $action $rest {}"

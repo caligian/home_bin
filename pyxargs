@@ -9,7 +9,6 @@ import tempfile
 
 from argparse import ArgumentParser
 
-
 class Shell:
     def __init__(self, cmds, timeout=1, tries=5):
         self.cmds = cmds
@@ -29,7 +28,7 @@ class Shell:
 
     def update_status(self, cmd, prop, value):
         if not self.status.get(cmd):
-            self.status[cmd] = {"returncode": None, "error": None, "output": None}
+            self.status[cmd] = {"returncode": False, "error": False, "output": False}
 
         self.status[cmd][prop] = value
 
@@ -49,9 +48,14 @@ class Shell:
                         current, "output", out.decode().strip().split("\n")
                     )
                 elif errs:
-                    self.update_status(
-                        current, "error", errs.decode().strip().split("\n")
-                    )
+                    errs = errs.decode().strip()
+                    if len(errs) > 0:
+                        self.update_status(
+                            current, "error", errs.split("\n")
+                        )
+                    else:
+                        self.update_status(current, "error", False)
+
                     self.update_status(current, "output", False)
 
             except shell.TimeoutExpired:
@@ -82,17 +86,19 @@ class Shell:
         return runner.status
 
 
+def default_placeholders(x: str) -> dict:
+    basename = os.path.basename(x)
+    abspath = os.path.abspath(x)
+    dirname = os.path.dirname(x)
+
+    return dict(basename=basename, abspath=abspath, dirname=dirname)
+
+
 def add_default_subs(xs: list) -> list:
     out = []
 
     for x in xs:
-        d = {}
-        d["basename"] = os.path.basename(x)
-        d["abspath"] = os.path.abspath(x)
-        d["dirname"] = os.path.dirname(x)
-        d["ext"] = (".").join(x.split(".")[1:])
-
-        out.append(x.format(**d))
+        out.append(x.format(**default_placeholders(x)))
 
     return out
 
@@ -108,6 +114,7 @@ def parse_cmdline() -> tuple[tuple, dict]:
     add = parser.add_argument
 
     add(
+        "-x",
         "--cmd",
         nargs="+",
         required=True,
@@ -121,11 +128,12 @@ def parse_cmdline() -> tuple[tuple, dict]:
         help="default timeout to check for polling for output",
     )
 
-    add("-i", "--path", help="read lines for path")
-    add("--stdin", action="store_true", help="read lines from stdin (default)")
-    add("--defs", nargs="+", help="placeholder definitions")
-    add("--sep", nargs=1, help='record separation (default: "\n")', default="\n")
+    add("-p", "--path", help="read lines for path")
+    add("-i", "--stdin", action="store_true", help="read lines from stdin (default)")
+    add("-/" ,"--replace", nargs="+", help="placeholder definitions")
+    add("-d", "--sep", nargs=1, help='record separation (default: "\n")', default="\n")
     add("--stdout", action="store_true", help="print output as json")
+
     add(
         "-o",
         "--dest",
@@ -168,13 +176,7 @@ def parse_cmdline() -> tuple[tuple, dict]:
             out = []
 
             for i, x in enumerate(recs):
-                found = {
-                    "abspath": os.path.abspath(x),
-                    "dirname": os.path.dirname(x),
-                    "_": x,
-                    "basename": "x",
-                    "ext": (".").join(x.split(".")[1:]),
-                }
+                found = default_placeholders(x)
                 items = defs.items()
                 fails = 0
 
@@ -220,5 +222,3 @@ def main():
 
 
 main()
-
-
